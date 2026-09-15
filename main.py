@@ -18,6 +18,10 @@ app = FastAPI(
     version="5.0.0"
 )
 
+@app.on_event("startup")
+async def startup_event():
+    print("🚀 StockPulse Pro started successfully!")
+
 app.include_router(stocks.router)
 app.include_router(screener.router)
 app.include_router(signals.router)

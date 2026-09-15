@@ -1,0 +1,1725 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StockPulse Pro | Indian Market Analytics</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#0a0a0f">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+        }
+    </script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Toast Container -->
+        <div id="toastContainer" class="toast-container"></div>
+        <!-- Stock Detail Drawer -->
+        <div id="drawerOverlay" class="drawer-overlay" onclick="closeDrawer()"></div>
+        <div id="stockDrawer" class="stock-drawer">
+            <button class="drawer-close" onclick="closeDrawer()">&times;</button>
+            <div id="drawerContent"></div>
+        </div>
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <span class="logo-icon">◈</span>
+                    <span class="logo-text">StockPulse</span>
+                    <span class="logo-badge">PRO</span>
+                </div>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <a class="nav-item active" data-tab="dashboard" onclick="showTab('dashboard')">
+                    <span class="nav-icon">◉</span>
+                    <span>Dashboard</span>
+                </a>
+                <a class="nav-item" data-tab="market" onclick="showTab('market')">
+                    <span class="nav-icon">◎</span>
+                    <span>Market</span>
+                </a>
+                <a class="nav-item" data-tab="screener" onclick="showTab('screener')">
+                    <span class="nav-icon">⌕</span>
+                    <span>Screener</span>
+                </a>
+                <a class="nav-item" data-tab="signals" onclick="showTab('signals')">
+                    <span class="nav-icon">⚡</span>
+                    <span>Signals</span>
+                </a>
+                <a class="nav-item" data-tab="sector" onclick="showTab('sector')">
+                    <span class="nav-icon">⬡</span>
+                    <span>Sectors</span>
+                </a>
+                <a class="nav-item" data-tab="compare" onclick="showTab('compare')">
+                    <span class="nav-icon">⇔</span>
+                    <span>Compare</span>
+                </a>
+                <a class="nav-item" data-tab="backtest" onclick="showTab('backtest')">
+                    <span class="nav-icon">↺</span>
+                    <span>Backtest</span>
+                </a>
+                <a class="nav-item" data-tab="news" onclick="showTab('news')">
+                    <span class="nav-icon">◻</span>
+                    <span>News</span>
+                </a>
+                <a class="nav-item" data-tab="ai" onclick="showTab('ai')">
+                    <span class="nav-icon">◈</span>
+                    <span>AI Analysis</span>
+                </a>
+                <a class="nav-item" data-tab="heatmap" onclick="showTab('heatmap')">
+                    <span class="nav-icon">▦</span>
+                    <span>Heatmap</span>
+                </a>
+                <a class="nav-item" data-tab="global" onclick="showTab('global')">
+                    <span class="nav-icon">🌐</span>
+                    <span>Global</span>
+                </a>
+                <a class="nav-item" data-tab="ipo" onclick="showTab('ipo')">
+                    <span class="nav-icon">★</span>
+                    <span>IPO</span>
+                </a>
+                <a class="nav-item" data-tab="calculators" onclick="showTab('calculators')">
+                    <span class="nav-icon">=#</span>
+                    <span>Calculators</span>
+                </a>
+                <a class="nav-item" data-tab="features" onclick="showTab('features')">
+                    <span class="nav-icon">☰</span>
+                    <span>More</span>
+                </a>
+                <a class="nav-item" data-tab="gold" onclick="showTab('gold')">
+                    <span class="nav-icon">⬡</span>
+                    <span>Gold</span>
+                </a>
+
+                <a class="nav-item" data-tab="mutualfunds" onclick="showTab('mutualfunds')">
+                    <span class="nav-icon">◈</span>
+                    <span>Mutual Funds</span>
+                </a>
+
+                <a class="nav-item" data-tab="currency" onclick="showTab('currency')">
+                    <span class="nav-icon">$</span>
+                    <span>Currency</span>
+                </a>
+
+                <a class="nav-item" data-tab="results" onclick="showTab('results')">
+                    <span class="nav-icon">◻</span>
+                    <span>Results</span>
+                </a>
+
+                <a class="nav-item" data-tab="invest" onclick="showTab('invest')">
+                    <span class="nav-icon">◈</span>
+                    <span>Invest</span>
+                </a>
+
+                <div class="nav-divider"></div>
+                <div class="nav-section">Portfolio & Tools</div>
+                
+                <a class="nav-item" data-tab="portfolio" onclick="showTab('portfolio')">
+                    <span class="nav-icon">▣</span>
+                    <span>Portfolio</span>
+                </a>
+                <a class="nav-item" data-tab="watchlist" onclick="showTab('watchlist')">
+                    <span class="nav-icon">★</span>
+                    <span>Watchlist</span>
+                </a>
+                <a class="nav-item" data-tab="analysis" onclick="showTab('analysis')">
+                    <span class="nav-icon">◈</span>
+                    <span>Analysis</span>
+                </a>
+                <a class="nav-item" data-tab="tools" onclick="showTab('tools')">
+                    <span class="nav-icon">⚙</span>
+                    <span>Tools</span>
+                </a>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="live-indicator">
+                    <span class="pulse"></span>
+                    <span>Live Mode</span>
+                    <span id="wsStatus" class="ws-status ws-disconnected" title="WebSocket: disconnected"></span>
+                </div>
+                <div class="version">v5.0.0</div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Portfolio P&L Ticker -->
+            <div class="portfolio-ticker" id="portfolioTicker">
+                <div class="ticker-content" id="tickerContent">
+                    <!-- Will be populated by JS -->
+                </div>
+            </div>
+
+            <!-- Top Bar -->
+            <header class="topbar">
+                <div class="topbar-left">
+                    <div class="search-box">
+                        <input type="text" id="searchInput" placeholder="Search stocks... (Press /)" autocomplete="off">
+                        <div id="searchResults" class="search-results"></div>
+                    </div>
+                </div>
+                <div class="topbar-right">
+                    <div class="stock-selector" style="position: relative;">
+                        <label>Search:</label>
+                        <input type="text" id="stockSearch" placeholder="Search stocks..." oninput="searchStockForMain(this.value)" onfocus="searchStockForMain(this.value)" style="width: 200px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-primary); color: var(--text);">
+                        <div id="stockSearchSuggestions" class="search-suggestions" style="top: 100%; left: 0; right: 0; width: 300px;"></div>
+                    </div>
+                    <div class="current-stock">
+                        <span id="currentStockName">RELIANCE</span>
+                        <span id="livePrice" class="price-badge">Loading...</span>
+                    </div>
+                    <button class="btn-refresh" onclick="loadChart()" title="Refresh (R)">⟳</button>
+                </div>
+            </header>
+
+            <!-- Content Area -->
+            <div class="content-area">
+                
+                <!-- Market Status Bar -->
+                <div class="market-status-bar" id="marketStatusBar">
+                    <div class="status-left">
+                        <span class="status-dot" id="marketStatusDot"></span>
+                        <span id="marketStatusText">Loading...</span>
+                    </div>
+                    <div class="status-center">
+                        <div class="market-pulse" id="marketPulse">
+                            <span class="pulse-label">Market Pulse:</span>
+                            <span class="pulse-value" id="pulseValue">--</span>
+                        </div>
+                    </div>
+                    <div class="status-right">
+                        <span class="ws-status" id="wsStatus" title="WebSocket Status"></span>
+                        <span id="currentTime"></span>
+                    </div>
+                </div>
+                
+                <!-- ========== DASHBOARD TAB ========== -->
+                <div id="dashboard" class="tab-content active">
+                    <div class="page-header">
+                        <h1>Dashboard</h1>
+                        <p>Real-time market overview and analysis</p>
+                    </div>
+                    
+                    <!-- Live Index Ticker (WebSocket-driven) -->
+                    <div class="live-index-grid">
+                        <div class="live-index-card">
+                            <div class="index-name">NIFTY 50</div>
+                            <div id="wsNiftyPrice" class="index-price">--</div>
+                            <div id="wsNiftyChange" class="index-change">--</div>
+                        </div>
+                        <div class="live-index-card">
+                            <div class="index-name">SENSEX</div>
+                            <div id="wsSensexPrice" class="index-price">--</div>
+                            <div id="wsSensexChange" class="index-change">--</div>
+                        </div>
+                        <div class="live-index-card">
+                            <div class="index-name">BANKNIFTY</div>
+                            <div id="wsBankniftyPrice" class="index-price">--</div>
+                            <div id="wsBankniftyChange" class="index-change">--</div>
+                        </div>
+                        <div class="live-index-card">
+                            <div class="index-name">NIFTY IT</div>
+                            <div id="wsNiftyItPrice" class="index-price">--</div>
+                            <div id="wsNiftyItChange" class="index-change">--</div>
+                        </div>
+                        <div class="live-index-card">
+                            <div class="index-name">NIFTY MIDCAP 100</div>
+                            <div id="wsNiftyMidcapPrice" class="index-price">--</div>
+                            <div id="wsNiftyMidcapChange" class="index-change">--</div>
+                        </div>
+                    </div>
+
+                    <div class="chart-section">
+                        <div class="chart-header">
+                            <div class="chart-title">
+                                <h2 id="chartStockName">RELIANCE</h2>
+                                <span id="chartPrice" class="current-price">Loading...</span>
+                            </div>
+                            <div class="chart-controls">
+                                <button class="timeframe-btn active" onclick="changeTimeframe('1d', this)">1D</button>
+                                <button class="timeframe-btn" onclick="changeTimeframe('5d', this)">5D</button>
+                                <button class="timeframe-btn" onclick="changeTimeframe('1mo', this)">1M</button>
+                                <button class="timeframe-btn" onclick="changeTimeframe('3mo', this)">3M</button>
+                                <button class="timeframe-btn" onclick="changeTimeframe('6mo', this)">6M</button>
+                                <button class="timeframe-btn" onclick="changeTimeframe('1y', this)">1Y</button>
+                                <button class="timeframe-btn" onclick="changeTimeframe('5y', this)">5Y</button>
+                            </div>
+                        </div>
+                        <div class="chart-indicators">
+                            <span class="indicator-tooltip" data-tip="Relative Strength Index">
+                                RSI: <strong id="chartRsi">-</strong>
+                            </span>
+                            <span class="indicator-tooltip" data-tip="Moving Average Convergence Divergence">
+                                MACD: <strong id="chartMacd">-</strong>
+                            </span>
+                            <span class="indicator-tooltip" data-tip="20-day Simple Moving Average">
+                                SMA20: <strong id="chartSma20">-</strong>
+                            </span>
+                            <span class="indicator-tooltip" data-tip="50-day Simple Moving Average">
+                                SMA50: <strong id="chartSma50">-</strong>
+                            </span>
+                            <span class="indicator-tooltip" data-tip="Average True Range - Volatility">
+                                ATR: <strong id="chartAtr">-</strong>
+                            </span>
+                        </div>
+                        <div id="chartContainer" class="chart-container"></div>
+                    </div>
+
+                    <div class="grid-2 mt-2">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Top Gainers</h3>
+                                <div>
+                                    <span class="badge positive">Live</span>
+                                    <span class="auto-refresh-badge">60s</span>
+                                </div>
+                            </div>
+                            <div id="topGainers" class="card-body">
+                                <div class="skeleton"></div>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Top Losers</h3>
+                                <div>
+                                    <span class="badge negative">Live</span>
+                                    <span class="auto-refresh-badge">60s</span>
+                                </div>
+                            </div>
+                            <div id="topLosers" class="card-body">
+                                <div class="skeleton"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========== MARKET TAB ========== -->
+                <div id="market" class="tab-content">
+                    <div class="page-header">
+                        <h1>Market Overview</h1>
+                        <p>Major indices and market data</p>
+                    </div>
+                    
+                    <div id="marketData" class="indices-grid">
+                        <div class="skeleton-card"></div>
+                        <div class="skeleton-card"></div>
+                        <div class="skeleton-card"></div>
+                        <div class="skeleton-card"></div>
+                    </div>
+
+                    <!-- Market Pulse Gauge -->
+                    <div class="pulse-gauge-container">
+                        <h3>Market Pulse</h3>
+                        <div class="pulse-gauge" id="pulseGauge">
+                            <div class="gauge-bg">
+                                <div class="gauge-needle" id="gaugeNeedle"></div>
+                                <div class="gauge-label-left">🔴 Bearish</div>
+                                <div class="gauge-label-right">🟢 Bullish</div>
+                            </div>
+                            <div class="gauge-score" id="gaugeScore">0</div>
+                            <div class="gauge-text" id="gaugeText">Neutral</div>
+                        </div>
+                    </div>
+
+                    <div class="grid-2 mt-2">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Top Gainers</h3>
+                                <span class="auto-refresh-badge">Auto-refresh 60s</span>
+                            </div>
+                            <div id="marketGainers" class="card-body">
+                                <div class="skeleton"></div>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Top Losers</h3>
+                                <span class="auto-refresh-badge">Auto-refresh 60s</span>
+                            </div>
+                            <div id="marketLosers" class="card-body">
+                                <div class="skeleton"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Volume Alerts Panel -->
+                    <div class="volume-alerts-panel mt-2" id="volumeAlertsPanel">
+                        <div class="panel-header">
+                            <h3>🔔 Volume Alerts</h3>
+                            <span class="badge" id="volumeAlertCount">0</span>
+                        </div>
+                        <div class="volume-alerts-list" id="volumeAlertsList">
+                            <div class="loading-placeholder">Loading volume alerts...</div>
+                        </div>
+                    </div>
+
+                    <!-- Option Chain -->
+                    <div class="option-chain-container" id="optionChainContainer">
+                        <div class="panel-header">
+                            <h3>📊 Option Chain - NIFTY</h3>
+                            <div class="option-chain-controls">
+                                <select id="optionExpiry" class="form-select" onchange="loadOptionChain()">
+                                    <option>Loading...</option>
+                                </select>
+                                <span class="pcr-badge" id="pcrBadge">PCR: --</span>
+                            </div>
+                        </div>
+
+                        <div class="option-chain-table-wrapper">
+                            <table class="option-chain-table" id="optionChainTable">
+                                <thead>
+                                    <tr>
+                                        <th colspan="5" class="call-header">CALLS</th>
+                                        <th class="strike-header">STRIKE</th>
+                                        <th colspan="5" class="put-header">PUTS</th>
+                                    </tr>
+                                    <tr>
+                                        <th>OI</th><th>Volume</th><th>IV</th><th>LTP</th><th>Chg</th>
+                                        <th></th>
+                                        <th>Chg</th><th>LTP</th><th>IV</th><th>Volume</th><th>OI</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="optionChainBody">
+                                    <tr><td colspan="11" class="loading-cell">Loading option chain...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========== SCREENER TAB ========== -->
+                <div id="screener" class="tab-content">
+                    <div class="page-header">
+                        <h1>Stock Screener</h1>
+                        <p>Find stocks matching your criteria</p>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Quick Screeners</h3>
+                        </div>
+                        <div class="screener-presets">
+                            <button class="preset-btn" onclick="quickScreen('oversold')">
+                                <span class="preset-icon">📉</span>
+                                <span>Oversold</span>
+                                <span class="preset-desc">RSI &lt; 30</span>
+                            </button>
+                            <button class="preset-btn" onclick="quickScreen('overbought')">
+                                <span class="preset-icon">📈</span>
+                                <span>Overbought</span>
+                                <span class="preset-desc">RSI &gt; 70</span>
+                            </button>
+                            <button class="preset-btn" onclick="quickScreen('macd_cross')">
+                                <span class="preset-icon">⚡</span>
+                                <span>MACD Cross</span>
+                                <span class="preset-desc">Bullish crossover</span>
+                            </button>
+                            <button class="preset-btn" onclick="quickScreen('golden_cross')">
+                                <span class="preset-icon">✦</span>
+                                <span>Golden Cross</span>
+                                <span class="preset-desc">SMA20 &gt; SMA50</span>
+                            </button>
+                            <button class="preset-btn" onclick="quickScreen('volume_spike')">
+                                <span class="preset-icon">📊</span>
+                                <span>Volume Spike</span>
+                                <span class="preset-desc">2x avg volume</span>
+                            </button>
+                            <button class="preset-btn" onclick="quickScreen('strong_trend')">
+                                <span class="preset-icon">↗</span>
+                                <span>Strong Trend</span>
+                                <span class="preset-desc">ADX &gt; 25</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="card mt-2">
+                        <div class="card-header">
+                            <h3>Custom Filters</h3>
+                        </div>
+                        <div class="filter-grid">
+                            <div class="filter-group">
+                                <label>RSI Below</label>
+                                <input type="number" id="rsiBelow" placeholder="e.g., 30" min="0" max="100">
+                            </div>
+                            <div class="filter-group">
+                                <label>RSI Above</label>
+                                <input type="number" id="rsiAbove" placeholder="e.g., 70" min="0" max="100">
+                            </div>
+                            <div class="filter-group">
+                                <label>SMA20 Above SMA50</label>
+                                <select id="goldenCross">
+                                    <option value="">Any</option>
+                                    <option value="true">Yes</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label>Volume Spike</label>
+                                <select id="volumeSpike">
+                                    <option value="">Any</option>
+                                    <option value="2">2x Average</option>
+                                    <option value="3">3x Average</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label>ADX Above</label>
+                                <input type="number" id="adxAbove" placeholder="e.g., 25" min="0" max="100">
+                            </div>
+                            <div class="filter-group">
+                                <label>MACD Signal</label>
+                                <select id="macdSignal">
+                                    <option value="">Any</option>
+                                    <option value="bullish">Bullish</option>
+                                    <option value="bearish">Bearish</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button class="btn-primary mt-2" onclick="runScreener()">Apply Filters</button>
+                    </div>
+
+                    <div id="screenerResults" class="mt-2">
+                        <p class="placeholder">Select a preset or apply filters to find stocks</p>
+                    </div>
+
+                    <div class="card mt-2">
+                        <div class="card-header">
+                            <h3>Pre-built Strategies</h3>
+                            <button class="btn-secondary" onclick="loadStrategies()">Load Strategies</button>
+                        </div>
+                        <div id="strategiesList" class="screener-presets">
+                            <p class="placeholder">Click Load to see available strategies</p>
+                        </div>
+                        <div id="strategyResults" class="mt-2"></div>
+                    </div>
+                </div>
+
+                <!-- ========== SIGNALS TAB ========== -->
+                <div id="signals" class="tab-content">
+                    <div class="page-header">
+                        <h1>Trading Signals</h1>
+                        <p>AI-powered buy/sell recommendations</p>
+                    </div>
+                    <div id="signalsContent" class="card">
+                        <div class="card-body">
+                            <p class="placeholder">Loading signals...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========== SECTOR TAB ========== -->
+                <div id="sector" class="tab-content">
+                    <div class="page-header">
+                        <h1>Sector Analysis</h1>
+                        <p>Performance breakdown by sector</p>
+                    </div>
+                    <div id="sectorContent" class="sector-grid">
+                        <div class="skeleton-card"></div>
+                        <div class="skeleton-card"></div>
+                        <div class="skeleton-card"></div>
+                    </div>
+                </div>
+
+                <!-- ========== COMPARE TAB ========== -->
+                <div id="compare" class="tab-content">
+                    <div class="page-header">
+                        <h1>Compare Stocks</h1>
+                        <p>Side-by-side stock comparison</p>
+                    </div>
+                    <div class="card">
+                        <div class="compare-inputs">
+                            <div class="filter-group">
+                                <label>Stock 1</label>
+                                <input type="text" id="compareSymbol1" value="RELIANCE.NS">
+                            </div>
+                            <div class="filter-group">
+                                <label>Stock 2</label>
+                                <input type="text" id="compareSymbol2" value="TCS.NS">
+                            </div>
+                            <div class="filter-group">
+                                <label>Stock 3</label>
+                                <input type="text" id="compareSymbol3" value="">
+                            </div>
+                            <button class="btn-primary" onclick="compareStocks()">Compare</button>
+                        </div>
+                    </div>
+                    <div id="compareResults" class="mt-2">
+                        <p class="placeholder">Enter symbols and click Compare</p>
+                    </div>
+                </div>
+
+                <!-- ========== BACKTEST TAB ========== -->
+                <div id="backtest" class="tab-content">
+                    <div class="page-header">
+                        <h1>Backtesting</h1>
+                        <p>Test your trading strategies on historical data</p>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Strategy Configuration</h3>
+                        </div>
+                        <div class="backtest-form">
+                            <div class="filter-group">
+                                <label>Stock Symbol</label>
+                                <input type="text" id="backtestSymbol" value="RELIANCE.NS">
+                            </div>
+                            <div class="filter-group">
+                                <label>Strategy</label>
+                                <select id="backtestStrategy">
+                                    <option value="rsi">RSI Overbought/Oversold</option>
+                                    <option value="macd">MACD Crossover</option>
+                                    <option value="sma">SMA Crossover</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label>Period</label>
+                                <select id="backtestPeriod">
+                                    <option value="6mo">6 Months</option>
+                                    <option value="1y" selected>1 Year</option>
+                                    <option value="2y">2 Years</option>
+                                </select>
+                            </div>
+                            <button class="btn-primary" onclick="runBacktest()">Run Backtest</button>
+                        </div>
+                    </div>
+                    <div id="backtestResults" class="mt-2">
+                        <p class="placeholder">Configure and run a backtest</p>
+                    </div>
+                </div>
+
+                <!-- ========== NEWS TAB ========== -->
+                <div id="news" class="tab-content">
+                    <div class="page-header">
+                        <h1>Market News</h1>
+                        <p>Latest market updates and stock news</p>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Stock-Specific News</h3>
+                        </div>
+                        <div class="tool-form">
+                            <div class="filter-group">
+                                <input type="text" id="newsSymbol" value="RELIANCE.NS" placeholder="Symbol">
+                            </div>
+                            <button class="btn-primary" onclick="loadStockNews()">Load News</button>
+                        </div>
+                    </div>
+
+                    <div class="grid-2 mt-2">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Market News</h3>
+                            </div>
+                            <div id="marketNews" class="news-list">
+                                <div class="skeleton"></div>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Stock News</h3>
+                            </div>
+                            <div id="stockNews" class="news-list">
+                                <p class="placeholder">Click Load News to fetch</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========== HEATMAP TAB ========== -->
+                <div id="heatmap" class="tab-content">
+                    <div class="page-header">
+                        <h1>Market Heatmap</h1>
+                        <p>Visual sector and stock performance</p>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Sector Heatmap</h3>
+                            <button class="btn-primary" onclick="loadHeatmap()">Load Heatmap</button>
+                        </div>
+                        <div id="heatmapContainer">
+                            <p class="placeholder">Click "Load Heatmap" to visualize market performance</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========== GLOBAL MARKETS TAB ========== -->
+                <div id="global" class="tab-content">
+                    <div class="page-header">
+                        <h1>Global Markets</h1>
+                        <p>World indices, currencies, and commodities</p>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>World Markets</h3>
+                            <button class="btn-primary" onclick="loadGlobalMarkets()">Refresh</button>
+                        </div>
+                        <div id="globalMarketsContainer">
+                            <p class="placeholder">Loading global markets...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========== AI ANALYSIS TAB ========== -->
+                <div id="ai" class="tab-content">
+                    <div class="page-header">
+                        <h1>AI Analysis</h1>
+                        <p>Powered by Google Gemini AI</p>
+                    </div>
+
+                    <!-- Gemini Settings -->
+                    <div class="card mb-2" id="geminiSettings">
+                        <div class="card-header">
+                            <h3>Gemini AI Settings</h3>
+                            <span id="geminiStatus" class="badge">Checking...</span>
+                        </div>
+                        <div class="tool-form">
+                            <div class="filter-group" style="flex:1;">
+                                <label>Google Gemini API Key</label>
+                                <input type="password" id="geminiApiKey" placeholder="Enter your Gemini API key (free at aistudio.google.com)">
+                            </div>
+                            <button class="btn-primary" onclick="saveGeminiKey()">Save Key</button>
+                        </div>
+                        <p style="font-size:11px; color:var(--text-muted); margin-top:8px;">
+                            Get free API key at <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:var(--accent);">aistudio.google.com</a>
+                            — 60 requests/min free
+                        </p>
+                    </div>
+
+                    <!-- AI Chat -->
+                    <div class="card mb-2">
+                        <div class="card-header">
+                            <h3>AI Assistant</h3>
+                        </div>
+                        <div id="chatContainer" class="chat-container">
+                            <div class="chat-messages" id="chatMessages">
+                                <div class="chat-message ai">
+                                    <div class="message-content">Hello! I'm StockPulse AI powered by Gemini. Ask me anything about Indian stocks, market trends, or trading strategies.</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="chat-input-area">
+                            <input type="text" id="chatInput" placeholder="Ask about any stock or market question..." onkeypress="if(event.key==='Enter')sendChat()">
+                            <button class="btn-primary" onclick="sendChat()">Send</button>
+                        </div>
+                    </div>
+
+                    <!-- Market Mood -->
+                    <div class="card mb-2">
+                        <div class="card-header">
+                            <h3>Market Mood (Rule-based)</h3>
+                            <button class="btn-primary" onclick="loadMarketMood()">Load Market Mood</button>
+                        </div>
+                        <div id="marketMood">
+                            <p class="placeholder">Click "Load Market Mood" to analyze</p>
+                        </div>
+                    </div>
+
+                    <!-- Trending Stocks from News -->
+                    <div class="card mb-2">
+                        <div class="card-header">
+                            <h3>Trending Stocks in News</h3>
+                            <button class="btn-primary" onclick="loadTrendingStocks()">Load Trending</button>
+                        </div>
+                        <div id="trendingStocks">
+                            <p class="placeholder">Click "Load Trending" to see news-based stocks</p>
+                        </div>
+                    </div>
+
+                    <!-- Stock AI Analysis -->
+                    <div class="card mb-2">
+                        <div class="card-header">
+                            <h3>Deep AI Analysis (Gemini)</h3>
+                        </div>
+                        <div class="tool-form">
+                            <div class="filter-group">
+                                <label>Stock Symbol</label>
+                                <input type="text" id="aiSymbol" value="RELIANCE.NS" placeholder="e.g., RELIANCE.NS">
+                            </div>
+                            <button class="btn-primary" onclick="runGeminiAnalysis()">Analyze with Gemini</button>
+                        </div>
+                        <div id="aiAnalysisResult" class="mt-2">
+                            <p class="placeholder">Enter a stock symbol and click Analyze</p>
+                        </div>
+                    </div>
+
+                    <!-- News Sentiment -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>News Sentiment Scanner</h3>
+                        </div>
+                        <div class="tool-form">
+                            <div class="filter-group">
+                                <label>Stock Symbol</label>
+                                <input type="text" id="sentimentSymbol" value="RELIANCE.NS" placeholder="e.g., RELIANCE.NS">
+                            </div>
+                            <button class="btn-primary" onclick="runSentimentScan()">Scan News</button>
+                        </div>
+                        <div id="sentimentResult" class="mt-2">
+                            <p class="placeholder">Scan news sentiment for any stock</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========== PORTFOLIO TAB ========== -->
+                <div id="portfolio" class="tab-content">
+                    <div class="page-header">
+                        <h1>My Portfolio</h1>
+                        <p>Track your investments</p>
+                    </div>
+                    
+                    <!-- Portfolio Analytics -->
+                    <div class="card mb-2">
+                        <div class="card-header">
+                            <h3>Portfolio Analytics</h3>
+                            <div>
+                                <button class="btn-primary" onclick="loadPortfolioAnalytics()">Analyze</button>
+                                <button class="btn-secondary" onclick="exportPortfolioReport()">Export Report</button>
+                            </div>
+                        </div>
+                        <div id="portfolioAnalytics">
+                            <p class="placeholder">Click Analyze to see portfolio insights</p>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Add Holding</h3>
+                        </div>
+                        <div class="portfolio-form">
+                            <div style="position: relative;">
+                                <input type="text" id="portfolioSymbol" placeholder="Search stock (e.g., RELIANCE)" oninput="searchStockForPortfolio(this.value)" onfocus="searchStockForPortfolio(this.value)">
+                                <div id="portfolioSuggestions" class="search-suggestions"></div>
+                            </div>
+                            <input type="number" id="portfolioQty" placeholder="Quantity" step="1">
+                            <input type="number" id="portfolioPrice" placeholder="Buy Price (₹)" step="0.01">
+                            <button class="btn-primary" onclick="addPortfolio()">Add Holding</button>
+                        </div>
+                    </div>
+                    <div id="portfolioTable" class="card mt-2">
+                        <div class="card-body">
+                            <p class="placeholder">No holdings yet</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========== WATCHLIST TAB ========== -->
+                <div id="watchlist" class="tab-content">
+                    <div class="page-header">
+                        <h1>My Watchlist</h1>
+                        <p>Monitor your favorite stocks</p>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Add to Watchlist</h3>
+                        </div>
+                        <div class="watchlist-form" style="position: relative;">
+                            <div style="flex: 1; position: relative;">
+                                <input type="text" id="watchlistSymbol" placeholder="Search stock (e.g., RELIANCE)" oninput="searchStockForWatchlist(this.value)" onfocus="searchStockForWatchlist(this.value)">
+                                <div id="watchlistSuggestions" class="search-suggestions"></div>
+                            </div>
+                            <button class="btn-primary" onclick="addToWatchlist()">Add</button>
+                        </div>
+                    </div>
+                    <div id="watchlistTable" class="card mt-2">
+                        <div class="card-body">
+                            <p class="placeholder">No stocks in watchlist</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========== ANALYSIS TAB ========== -->
+                <div id="analysis" class="tab-content">
+                    <div class="page-header">
+                        <h1>Advanced Analysis</h1>
+                        <p>Multi-timeframe and custom strategies</p>
+                    </div>
+
+                    <!-- Market Depth -->
+                    <div class="market-depth-panel" id="marketDepthPanel">
+                        <div class="panel-header">
+                            <h3>📖 Market Depth</h3>
+                            <div class="depth-controls">
+                                <input type="text" id="depthSymbolInput" value="RELIANCE" placeholder="Symbol (e.g., RELIANCE)" style="padding:6px 10px; background:var(--bg-primary); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-primary); font-size:12px; width:160px;">
+                                <button class="btn-primary" onclick="loadMarketDepth(document.getElementById('depthSymbolInput').value)" style="padding:6px 14px; font-size:12px;">Load</button>
+                                <span class="depth-symbol" id="depthSymbol">--</span>
+                            </div>
+                        </div>
+
+                        <div class="depth-grid">
+                            <div class="depth-bids">
+                                <h4 class="depth-title buy">Bids (Buyers)</h4>
+                                <div class="depth-table">
+                                    <div class="depth-header">
+                                        <span>Price</span>
+                                        <span>Qty</span>
+                                        <span>Orders</span>
+                                    </div>
+                                    <div id="depthBids">
+                                        <div class="placeholder">Enter symbol and click Load</div>
+                                    </div>
+                                </div>
+                                <div class="depth-total">
+                                    Total: <span id="totalBidQty">0</span>
+                                </div>
+                            </div>
+
+                            <div class="depth-spread">
+                                <div class="spread-value" id="spreadValue">--</div>
+                                <div class="spread-label">Spread</div>
+                                <div class="bid-ask-ratio">
+                                    <span class="ratio-label">Bid/Ask Ratio:</span>
+                                    <span class="ratio-value" id="bidAskRatio">--</span>
+                                </div>
+                            </div>
+
+                            <div class="depth-asks">
+                                <h4 class="depth-title sell">Asks (Sellers)</h4>
+                                <div class="depth-table">
+                                    <div class="depth-header">
+                                        <span>Price</span>
+                                        <span>Qty</span>
+                                        <span>Orders</span>
+                                    </div>
+                                    <div id="depthAsks">
+                                        <div class="placeholder">Enter symbol and click Load</div>
+                                    </div>
+                                </div>
+                                <div class="depth-total">
+                                    Total: <span id="totalAskQty">0</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Multi-Timeframe Analysis</h3>
+                        </div>
+                        <div class="tool-form">
+                            <div class="filter-group">
+                                <label>Stock Symbol</label>
+                                <input type="text" id="mtfSymbol" value="RELIANCE.NS">
+                            </div>
+                            <button class="btn-primary" onclick="loadMultiTimeframe()">Analyze</button>
+                        </div>
+                        <div id="mtfResults" class="mt-2">
+                            <p class="placeholder">Click Analyze to run multi-timeframe analysis</p>
+                        </div>
+                    </div>
+
+                    <div class="card mt-2">
+                        <div class="card-header">
+                            <h3>Custom Strategy Builder</h3>
+                        </div>
+                        <div class="tool-form">
+                            <div class="filter-group">
+                                <label>Symbol</label>
+                                <input type="text" id="customSymbol" value="RELIANCE.NS">
+                            </div>
+                            <div class="filter-group">
+                                <label>Buy RSI &lt;</label>
+                                <input type="number" id="customRsiBuy" value="30">
+                            </div>
+                            <div class="filter-group">
+                                <label>Sell RSI &gt;</label>
+                                <input type="number" id="customRsiSell" value="70">
+                            </div>
+                            <button class="btn-primary" onclick="runCustomStrategy()">Run Strategy</button>
+                        </div>
+                        <div id="customResults" class="mt-2">
+                            <p class="placeholder">Configure conditions and run strategy</p>
+                        </div>
+                    </div>
+
+                    <div class="card mt-2">
+                        <div class="card-header">
+                            <h3>Correlation Matrix</h3>
+                        </div>
+                        <div class="tool-form">
+                            <div class="filter-group">
+                                <label>Stocks (comma separated)</label>
+                                <input type="text" id="correlationSymbols" value="RELIANCE.NS,TCS.NS,HDFCBANK.NS,INFY.NS" style="width: 400px;">
+                            </div>
+                            <button class="btn-primary" onclick="loadCorrelation()">Analyze</button>
+                        </div>
+                        <div id="correlationResults" class="mt-2">
+                            <p class="placeholder">Enter symbols and click Analyze</p>
+                        </div>
+                    </div>
+
+                    <div class="grid-2 mt-2">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Market Breadth</h3>
+                            </div>
+                            <button class="btn-primary mb-2" onclick="loadBreadth()">Load Breadth</button>
+                            <div id="breadthData">
+                                <p class="placeholder">Click to load market breadth</p>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Earnings Calendar</h3>
+                            </div>
+                            <button class="btn-primary mb-2" onclick="loadEarnings()">Load</button>
+                            <div id="earningsData">
+                                <p class="placeholder">Click to load upcoming earnings</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card mt-2">
+                        <div class="card-header">
+                            <h3>Dividend Stocks</h3>
+                        </div>
+                        <button class="btn-primary mb-2" onclick="loadDividends()">Load Dividends</button>
+                        <div id="dividendData">
+                            <p class="placeholder">Click to load high dividend stocks</p>
+                        </div>
+                    </div>
+
+                    <div class="card mt-2">
+                        <div class="card-header">
+                            <h3>Stock Financials</h3>
+                        </div>
+                        <div class="tool-form">
+                            <div class="filter-group">
+                                <label>Stock Symbol</label>
+                                <input type="text" id="financialSymbol" value="RELIANCE.NS" placeholder="e.g., RELIANCE.NS">
+                            </div>
+                            <button class="btn-primary" onclick="loadFinancials()">Load Financials</button>
+                        </div>
+                        <div id="financialsData" class="mt-2">
+                            <p class="placeholder">Click to load stock financials</p>
+                        </div>
+                    </div>
+
+                    <div class="card mt-2">
+                        <div class="card-header">
+                            <h3>Dividend History</h3>
+                        </div>
+                        <div class="tool-form">
+                            <div class="filter-group">
+                                <label>Stock Symbol</label>
+                                <input type="text" id="divHistorySymbol" value="RELIANCE.NS" placeholder="e.g., RELIANCE.NS">
+                            </div>
+                            <button class="btn-primary" onclick="loadDividendHistory()">Load History</button>
+                        </div>
+                        <div id="dividendHistory" class="mt-2">
+                            <p class="placeholder">Click to load dividend history</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========== IPO TAB ========== -->
+                <div id="ipo" class="tab-content">
+                    <div class="page-header">
+                        <h1>IPO Dashboard</h1>
+                        <p>Upcoming IPOs, GMP, and subscription status</p>
+                    </div>
+                    
+                    <div class="card mb-2">
+                        <div class="card-header">
+                            <h3>Market Status</h3>
+                            <button class="btn-primary" onclick="loadMarketStatus()">Check Status</button>
+                        </div>
+                        <div id="marketStatus">
+                            <p class="placeholder">Click to check market status</p>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Upcoming IPOs</h3>
+                            <button class="btn-primary" onclick="loadIPOs()">Refresh</button>
+                        </div>
+                        <div id="ipoContainer">
+                            <p class="placeholder">Loading upcoming IPOs...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========== CALCULATORS TAB ========== -->
+                <div id="calculators" class="tab-content">
+                    <div class="page-header">
+                        <h1>Financial Calculators</h1>
+                        <p>SIP, Tax, and investment calculators</p>
+                    </div>
+                    
+                    <div class="grid-2">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>SIP Calculator</h3>
+                            </div>
+                            <div class="tool-form">
+                                <div class="filter-group">
+                                    <label>Monthly Investment (₹)</label>
+                                    <input type="number" id="sipAmount" value="5000" step="500">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Expected Return (% p.a.)</label>
+                                    <input type="number" id="sipReturn" value="12" step="0.5">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Years</label>
+                                    <input type="number" id="sipYears" value="10" step="1">
+                                </div>
+                                <button class="btn-primary" onclick="calculateSIP()">Calculate</button>
+                            </div>
+                            <div id="sipResult" class="mt-2"></div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Tax Calculator (STCG/LTCG)</h3>
+                            </div>
+                            <div class="tool-form">
+                                <div class="filter-group">
+                                    <label>Selling Price (₹)</label>
+                                    <input type="number" id="taxSellPrice" step="0.01">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Buying Price (₹)</label>
+                                    <input type="number" id="taxBuyPrice" step="0.01">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Quantity</label>
+                                    <input type="number" id="taxQty" value="100" step="1">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Holding Period</label>
+                                    <select id="taxHolding">
+                                        <option value="short">Short Term (&lt;12 months)</option>
+                                        <option value="long">Long Term (&gt;12 months)</option>
+                                    </select>
+                                </div>
+                                <button class="btn-primary" onclick="calculateTax()">Calculate Tax</button>
+                            </div>
+                            <div id="taxResult" class="mt-2"></div>
+                        </div>
+                    </div>
+
+                    <div class="card mt-2">
+                        <div class="card-header">
+                            <h3>Economic Calendar</h3>
+                            <button class="btn-primary" onclick="loadEconomicCalendar()">Load Events</button>
+                        </div>
+                        <div id="economicCalendar">
+                            <p class="placeholder">Click to load upcoming economic events</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========== FEATURES TAB ========== -->
+                <div id="features" class="tab-content">
+                    <div class="page-header">
+                        <h1>More Features</h1>
+                        <p>Notes, Earnings, FII/DII, Multi-Chart, and Theme</p>
+                    </div>
+
+                    <!-- Theme Toggle -->
+                    <div class="card mb-2">
+                        <div class="card-header">
+                            <h3>Appearance</h3>
+                        </div>
+                        <div class="theme-toggle-area">
+                            <button class="btn-secondary" onclick="toggleTheme()">Toggle Dark/Light Theme</button>
+                            <span id="themeStatus" style="margin-left:12px; font-size:13px; color:var(--text-secondary);">Current: Dark</span>
+                        </div>
+                    </div>
+
+                    <!-- Stock Notes -->
+                    <div class="card mb-2">
+                        <div class="card-header">
+                            <h3>Stock Notes</h3>
+                        </div>
+                        <div class="tool-form">
+                            <div class="filter-group">
+                                <label>Stock Symbol</label>
+                                <input type="text" id="noteSymbol" placeholder="RELIANCE.NS">
+                            </div>
+                            <div class="filter-group" style="flex:2;">
+                                <label>Note</label>
+                                <input type="text" id="noteText" placeholder="Your observation or note...">
+                            </div>
+                            <button class="btn-primary" onclick="addStockNote()">Add Note</button>
+                        </div>
+                        <div id="notesList" class="mt-2">
+                            <p class="placeholder">Add notes to track your observations</p>
+                        </div>
+                    </div>
+
+                    <!-- Earnings Calendar -->
+                    <div class="card mb-2">
+                        <div class="card-header">
+                            <h3>Earnings Calendar</h3>
+                            <button class="btn-primary" onclick="loadEarningsCalendar()">Load</button>
+                        </div>
+                        <div id="earningsCalendar">
+                            <p class="placeholder">Click Load to see upcoming earnings</p>
+                        </div>
+                    </div>
+
+                    <!-- FII/DII Activity -->
+                    <div class="card mb-2">
+                        <div class="card-header">
+                            <h3>FII/DII Activity</h3>
+                            <button class="btn-primary" onclick="loadFiiDii()">Load</button>
+                        </div>
+                        <div id="fiiDiiActivity">
+                            <p class="placeholder">Click Load to see FII/DII data</p>
+                        </div>
+                    </div>
+
+                    <!-- Multi-Chart -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Multi-Chart Comparison</h3>
+                        </div>
+                        <div class="tool-form">
+                            <div class="filter-group">
+                                <label>Stocks (comma separated)</label>
+                                <input type="text" id="multiChartSymbols" value="RELIANCE.NS,TCS.NS,HDFCBANK.NS" style="width:400px;">
+                            </div>
+                            <button class="btn-primary" onclick="loadMultiChart()">Compare</button>
+                        </div>
+                        <div id="multiChartContainer" class="mt-2" style="height:300px;">
+                            <p class="placeholder">Click Compare to overlay stocks</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========== GOLD & SILVER TAB ========== -->
+                <div id="gold" class="tab-content">
+                    <div class="page-header">
+                        <h1>Gold & Silver</h1>
+                        <p>Precious metals tracker and calculator</p>
+                    </div>
+
+                    <!-- Gold/Silver Prices -->
+                    <div class="card mb-2">
+                        <div class="card-header">
+                            <h3>Current Prices</h3>
+                            <button class="btn-primary" onclick="loadGoldPrices()">Refresh</button>
+                        </div>
+                        <div id="goldPrices">
+                            <p class="placeholder">Loading gold and silver prices...</p>
+                        </div>
+                    </div>
+
+                    <!-- Gold Chart -->
+                    <div class="card mb-2">
+                        <div class="card-header">
+                            <h3>Gold Price Chart (1 Year)</h3>
+                        </div>
+                        <div id="goldChart" style="height:300px;">
+                            <p class="placeholder">Chart will load with prices</p>
+                        </div>
+                    </div>
+
+                    <div class="grid-2 mb-2">
+                        <!-- Gold vs Nifty -->
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Gold vs Nifty (1Y)</h3>
+                                <button class="btn-primary" onclick="loadGoldNiftyRatio()">Compare</button>
+                            </div>
+                            <div id="goldNiftyRatio">
+                                <p class="placeholder">Click Compare to see performance</p>
+                            </div>
+                        </div>
+
+                        <!-- Gold Calculator -->
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Gold Value Calculator</h3>
+                            </div>
+                            <div class="tool-form">
+                                <div class="filter-group">
+                                    <label>Weight (grams)</label>
+                                    <input type="number" id="goldWeight" value="10" step="0.5">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Purity</label>
+                                    <select id="goldPurity">
+                                        <option value="24K">24K (99.9%)</option>
+                                        <option value="22K">22K (91.6%)</option>
+                                        <option value="18K">18K (75%)</option>
+                                        <option value="14K">14K (58.5%)</option>
+                                    </select>
+                                </div>
+                                <button class="btn-primary" onclick="calculateGoldValue()">Calculate</button>
+                            </div>
+                            <div id="goldCalcResult" class="mt-2"></div>
+                        </div>
+                    </div>
+
+                    <!-- Gold ETFs -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Gold ETFs</h3>
+                            <button class="btn-primary" onclick="loadGoldETFs()">Load ETFs</button>
+                        </div>
+                        <div id="goldETFs">
+                            <p class="placeholder">Click Load ETFs to see available gold ETFs</p>
+                        </div>
+                    </div>
+                    </div>
+
+                <!-- ========== INVEST TAB ========== -->
+                <div id="invest" class="tab-content">
+                    <div class="page-header">
+                        <h1>Investment Insights</h1>
+                        <p>Superinvestors, Breakouts, Dividends, Sentiment & Outlook</p>
+                    </div>
+
+                    <div class="card mb-2">
+                        <div class="card-header">
+                            <h3>Ace Investor Portfolios</h3>
+                            <button class="btn-primary" onclick="loadSuperinvestors()">Load Investors</button>
+                        </div>
+                        <div id="superinvestorsList">
+                            <p class="placeholder">Track holdings of Rakesh Jhunjhunwala, Radhakishan Damani, Vijay Kedia & more</p>
+                        </div>
+                        <div id="superinvestorDetail" class="mt-2"></div>
+                    </div>
+
+                    <div class="card mb-2">
+                        <div class="card-header">
+                            <h3>Breakout Stocks</h3>
+                            <button class="btn-primary" onclick="loadBreakouts()">Load Breakouts</button>
+                        </div>
+                        <div id="breakoutsList">
+                            <p class="placeholder">Stocks hitting 10/20/50/100/200-day and 52-week highs</p>
+                        </div>
+                    </div>
+
+                    <div class="card mb-2">
+                        <div class="card-header">
+                            <h3>Dividend Aristocrats</h3>
+                            <button class="btn-primary" onclick="loadDividendAristocrats()">Load</button>
+                        </div>
+                        <div id="dividendAristocrats">
+                            <p class="placeholder">Stocks with consistent dividend payment streaks</p>
+                        </div>
+                    </div>
+
+                    <div class="card mb-2">
+                        <div class="card-header">
+                            <h3>Global Market Sentiment</h3>
+                            <button class="btn-primary" onclick="loadGlobalSentiment()">Load</button>
+                        </div>
+                        <div id="globalSentiment">
+                            <p class="placeholder">AI-generated sentiment for world indices</p>
+                        </div>
+                    </div>
+
+                    <div class="card mb-2">
+                        <div class="card-header">
+                            <h3>Weekly Technical Outlook</h3>
+                            <button class="btn-primary" onclick="loadWeeklyOutlook()">Load</button>
+                        </div>
+                        <div id="weeklyOutlook">
+                            <p class="placeholder">RSI, ATR, pivots and regime for major indices</p>
+                        </div>
+                    </div>
+
+                    <div class="card mb-2">
+                        <div class="card-header">
+                            <h3>NSE Trading Holidays</h3>
+                            <button class="btn-secondary" onclick="loadHolidays()">Load</button>
+                        </div>
+                        <div id="holidaysList">
+                            <p class="placeholder">Upcoming market holidays</p>
+                        </div>
+                    </div>
+
+                    <div class="card mb-2">
+                        <div class="card-header">
+                            <h3>Corporate Announcements</h3>
+                            <button class="btn-secondary" onclick="loadAnnouncements()">Load</button>
+                        </div>
+                        <div id="announcementsList">
+                            <p class="placeholder">Latest NSE+BSE announcements</p>
+                        </div>
+                    </div>
+
+                    <div class="card mb-2">
+                        <div class="card-header">
+                            <h3>Market Regime (The Other Side)</h3>
+                            <button class="btn-primary" onclick="loadOtherSide()">Load</button>
+                        </div>
+                        <div id="otherSideData">
+                            <p class="placeholder">FII/DII/Pro open interest positioning and regime analysis</p>
+                        </div>
+                    </div>
+
+                    <div class="card mb-2">
+                        <div class="card-header">
+                            <h3>Pre-Open Signal Accuracy</h3>
+                            <button class="btn-secondary" onclick="loadPreOpen()">Load</button>
+                        </div>
+                        <div id="preOpenData">
+                            <p class="placeholder">Historical hit-rate of NSE pre-open buy/sell signals</p>
+                        </div>
+                    </div>
+
+                    <div class="card mb-2">
+                        <div class="card-header">
+                            <h3>Management Promises Tracker</h3>
+                            <button class="btn-primary" onclick="loadPromises()">Load</button>
+                        </div>
+                        <div id="promisesData">
+                            <p class="placeholder">Track what management promised vs delivered</p>
+                        </div>
+                    </div>
+
+                    <div class="card mb-2">
+                        <div class="card-header">
+                            <h3>US Multibagger Stocks</h3>
+                            <button class="btn-secondary" onclick="loadUSMultibaggers()">Load</button>
+                        </div>
+                        <div id="usMultibaggers">
+                            <p class="placeholder">US stocks with massive 1-year returns</p>
+                        </div>
+                    </div>
+
+                    <div class="card mb-2">
+                        <div class="card-header">
+                            <h3>Stock Deep Dive</h3>
+                        </div>
+                        <div class="tool-form">
+                            <div class="filter-group">
+                                <label>Symbol (e.g., RELIANCE)</label>
+                                <input type="text" id="stockDetailSymbol" placeholder="RELIANCE">
+                            </div>
+                            <button class="btn-primary" onclick="loadStockDetail()">Analyze</button>
+                        </div>
+                        <div id="stockDetailData" class="mt-2"></div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Mutual Fund Schemes</h3>
+                            <button class="btn-primary" onclick="loadMFSchemes()">Load</button>
+                        </div>
+                        <div id="mfSchemesList">
+                            <p class="placeholder">Top AMFI mutual fund schemes with returns</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========== MUTUAL FUNDS TAB ========== -->
+                <div id="mutualfunds" class="tab-content">
+                    <div class="page-header">
+                        <h1>Mutual Funds</h1>
+                        <p>Top Indian mutual funds and SIP calculator</p>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Top Mutual Funds</h3>
+                            <button class="btn-primary" onclick="loadMutualFunds()">Refresh</button>
+                        </div>
+                        <div id="mutualFundsList">
+                            <p class="placeholder">Click Refresh to load fund data</p>
+                        </div>
+                    </div>
+                    <div class="card mt-2">
+                        <div class="card-header">
+                            <h3>SIP Calculator</h3>
+                        </div>
+                        <div class="tool-form">
+                            <div class="filter-group">
+                                <label>Monthly Amount (₹)</label>
+                                <input type="number" id="sipAmount" value="5000" step="500">
+                            </div>
+                            <div class="filter-group">
+                                <label>Expected Annual Return (%)</label>
+                                <input type="number" id="sipReturn" value="12" step="0.5">
+                            </div>
+                            <div class="filter-group">
+                                <label>Years</label>
+                                <input type="number" id="sipYears" value="10" step="1">
+                            </div>
+                            <button class="btn-primary" onclick="calculateSIP()">Calculate</button>
+                        </div>
+                        <div id="sipResult" class="mt-2"></div>
+                    </div>
+                </div>
+
+                <!-- ========== CURRENCY TAB ========== -->
+                <div id="currency" class="tab-content">
+                    <div class="page-header">
+                        <h1>Currency Converter</h1>
+                        <p>Real-time exchange rates</p>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Convert Currency</h3>
+                        </div>
+                        <div class="tool-form">
+                            <div class="filter-group">
+                                <label>Amount</label>
+                                <input type="number" id="convertAmount" value="1000" step="1">
+                            </div>
+                            <div class="filter-group">
+                                <label>From</label>
+                                <select id="convertFrom">
+                                    <option value="USD">USD - US Dollar</option>
+                                    <option value="EUR">EUR - Euro</option>
+                                    <option value="GBP">GBP - British Pound</option>
+                                    <option value="JPY">JPY - Japanese Yen</option>
+                                    <option value="AED">AED - UAE Dirham</option>
+                                    <option value="SGD">SGD - Singapore Dollar</option>
+                                    <option value="AUD">AUD - Australian Dollar</option>
+                                    <option value="CAD">CAD - Canadian Dollar</option>
+                                    <option value="CHF">CHF - Swiss Franc</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label>To</label>
+                                <select id="convertTo">
+                                    <option value="INR">INR - Indian Rupee</option>
+                                    <option value="USD">USD - US Dollar</option>
+                                    <option value="EUR">EUR - Euro</option>
+                                    <option value="GBP">GBP - British Pound</option>
+                                </select>
+                            </div>
+                            <button class="btn-primary" onclick="convertCurrency()">Convert</button>
+                        </div>
+                        <div id="convertResult" class="mt-2"></div>
+                    </div>
+                    <div class="card mt-2">
+                        <div class="card-header">
+                            <h3>Quick Rates (vs INR)</h3>
+                            <button class="btn-secondary" onclick="loadQuickRates()">Refresh</button>
+                        </div>
+                        <div id="quickRates">
+                            <p class="placeholder">Click Refresh to load rates</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========== RESULTS TAB ========== -->
+                <div id="results" class="tab-content">
+                    <div class="page-header">
+                        <h1>Earnings & Deals</h1>
+                        <p>Upcoming quarterly results and block/bulk deals</p>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Upcoming Quarterly Results</h3>
+                            <button class="btn-primary" onclick="loadUpcomingResults()">Refresh</button>
+                        </div>
+                        <div id="upcomingResults">
+                            <p class="placeholder">Click Refresh to load results calendar</p>
+                        </div>
+                    </div>
+                    <div class="card mt-2">
+                        <div class="card-header">
+                            <h3>Block Deals (Today)</h3>
+                            <button class="btn-secondary" onclick="loadBlockDeals()">Refresh</button>
+                        </div>
+                        <div id="blockDealsList">
+                            <p class="placeholder">Click Refresh to load block deals</p>
+                        </div>
+                    </div>
+                    <div class="card mt-2">
+                        <div class="card-header">
+                            <h3>Bulk Deals (Today)</h3>
+                            <button class="btn-secondary" onclick="loadBulkDeals()">Refresh</button>
+                        </div>
+                        <div id="bulkDealsList">
+                            <p class="placeholder">Click Refresh to load bulk deals</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========== TOOLS TAB ========== -->
+                <div id="tools" class="tab-content">
+                    <div class="page-header">
+                        <h1>Trading Tools</h1>
+                        <p>Risk management and utilities</p>
+                    </div>
+                    
+                    <div class="grid-2">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Position Size Calculator</h3>
+                            </div>
+                            <div class="tool-form">
+                                <div class="filter-group">
+                                    <label>Account Size (₹)</label>
+                                    <input type="number" id="accountSize" value="100000" step="1000">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Risk %</label>
+                                    <input type="number" id="riskPercent" value="2" step="0.5" min="0.5" max="10">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Entry Price (₹)</label>
+                                    <input type="number" id="entryPrice" step="0.01">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Stop Loss (₹)</label>
+                                    <input type="number" id="stopLoss" step="0.01">
+                                </div>
+                                <button class="btn-primary" onclick="calculatePosition()">Calculate</button>
+                            </div>
+                            <div id="positionResult" class="mt-2"></div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Fibonacci Calculator</h3>
+                            </div>
+                            <div class="tool-form">
+                                <div class="filter-group">
+                                    <label>Stock Symbol</label>
+                                    <input type="text" id="fibSymbol" placeholder="e.g., RELIANCE.NS">
+                                </div>
+                                <button class="btn-primary" onclick="calculateFibonacci()">Calculate</button>
+                            </div>
+                            <div id="fibResult" class="mt-2"></div>
+                        </div>
+                    </div>
+
+                    <div class="card mt-2">
+                        <div class="card-header">
+                            <h3>Price Alerts</h3>
+                        </div>
+                        <div class="tool-form">
+                            <div class="filter-group">
+                                <label>Symbol</label>
+                                <input type="text" id="alertSymbol" placeholder="RELIANCE.NS">
+                            </div>
+                            <div class="filter-group">
+                                <label>Alert Type</label>
+                                <select id="alertType">
+                                    <option value="price_above">Price Above</option>
+                                    <option value="price_below">Price Below</option>
+                                    <option value="rsi_oversold">RSI Oversold</option>
+                                    <option value="rsi_overbought">RSI Overbought</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label>Target Price</label>
+                                <input type="number" id="alertPrice" step="0.01">
+                            </div>
+                            <button class="btn-primary" onclick="createAlert()">Create Alert</button>
+                        </div>
+                        <div id="alertsList" class="mt-2">
+                            <p class="placeholder">No alerts set</p>
+                        </div>
+                    </div>
+
+                    <div class="card mt-2">
+                        <div class="card-header">
+                            <h3>Smart Alerts Pro</h3>
+                        </div>
+                        <div class="tool-form">
+                            <div class="filter-group">
+                                <label>Symbol</label>
+                                <input type="text" id="alertProSymbol" placeholder="RELIANCE.NS">
+                            </div>
+                            <div class="filter-group">
+                                <label>Alert Name</label>
+                                <input type="text" id="alertProName" placeholder="My Alert">
+                            </div>
+                            <div class="filter-group">
+                                <label>RSI Below</label>
+                                <input type="number" id="alertProRsiBelow" placeholder="30">
+                            </div>
+                            <div class="filter-group">
+                                <label>Price Above</label>
+                                <input type="number" id="alertProPriceAbove" placeholder="2500">
+                            </div>
+                            <div class="filter-group">
+                                <label>Volume > Avg</label>
+                                <input type="number" id="alertProVolume" placeholder="2">
+                            </div>
+                            <button class="btn-primary" onclick="createAlertPro()">Create Smart Alert</button>
+                        </div>
+                        <div id="alertsProList" class="mt-2">
+                            <p class="placeholder">No smart alerts set</p>
+                        </div>
+                    </div>
+
+                    <div class="card mt-2">
+                        <div class="card-header">
+                            <h3>Export Data</h3>
+                        </div>
+                        <div class="export-options">
+                            <button class="btn-secondary" onclick="exportScreenerCSV()">📥 Export Screener (CSV)</button>
+                            <button class="btn-secondary" onclick="exportPortfolioCSV()">📥 Export Portfolio (CSV)</button>
+                        </div>
+                    </div>
+
+                    <div class="grid-2 mt-2">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Telegram Alerts</h3>
+                            </div>
+                            <div class="tool-form">
+                                <div class="filter-group">
+                                    <label>Bot Token</label>
+                                    <input type="text" id="telegramBotToken" placeholder="Your Telegram Bot Token">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Chat ID</label>
+                                    <input type="text" id="telegramChatId" placeholder="Your Chat ID">
+                                </div>
+                                <button class="btn-primary" onclick="saveTelegramConfig()">Save Config</button>
+                                <button class="btn-secondary" onclick="testTelegram()">Test Send</button>
+                            </div>
+                            <div id="telegramStatus" class="mt-2"></div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Promoter Data</h3>
+                            </div>
+                            <div class="tool-form">
+                                <div class="filter-group">
+                                    <label>Stock Symbol</label>
+                                    <input type="text" id="promoterSymbol" placeholder="e.g., RELIANCE.NS">
+                                </div>
+                                <button class="btn-primary" onclick="loadPromoterData()">Check Holdings</button>
+                            </div>
+                            <div id="promoterResult" class="mt-2">
+                                <p class="placeholder">Enter symbol to check promoter data</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card mt-2">
+                        <div class="card-header">
+                            <h3>Keyboard Shortcuts</h3>
+                        </div>
+                        <div class="shortcuts-grid">
+                            <div class="shortcut"><kbd>1-9</kbd> Switch tabs</div>
+                            <div class="shortcut"><kbd>R</kbd> Refresh chart</div>
+                            <div class="shortcut"><kbd>/</kbd> Focus search</div>
+                            <div class="shortcut"><kbd>Esc</kbd> Close search</div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <div id="loading" class="loading hidden">
+        <div class="spinner"></div>
+        <p>Loading...</p>
+    </div>
+
+    <script src="/static/js/app.js?v=4.2"></script>
+</body>
+</html>

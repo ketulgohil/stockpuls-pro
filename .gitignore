@@ -1,0 +1,12 @@
+__pycache__
+*.pyc
+.env
+venv/
+.venv/
+*.db
+.DS_Store
+server.log
+data/gemini_config.json
+data/portfolio.json
+data/watchlist.json
+data/alerts.json

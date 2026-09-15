@@ -3518,7 +3518,7 @@ async function loadOptionChain() {
         const strikes = [...new Set([
             ...data.calls.map(c => c.strike),
             ...data.puts.map(p => p.strike)
-        ]].sort((a, b) => b - a);
+        ])].sort((a, b) => b - a);
 
         const currentPrice = data.currentPrice;
         const atmStrike = Math.round(currentPrice / 50) * 50;

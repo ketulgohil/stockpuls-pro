@@ -1,14 +1,8 @@
 fastapi
-uvicorn
+uvicorn[standard]
 yfinance
 pandas
 numpy
 aiofiles
 python-multipart
-aiofiles
-fastapi
-numpy
-pandas
-python-multipart
-uvicorn
-yfinance
+requests

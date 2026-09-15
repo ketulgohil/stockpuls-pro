@@ -5,3 +5,10 @@ pandas
 numpy
 aiofiles
 python-multipart
+aiofiles
+fastapi
+numpy
+pandas
+python-multipart
+uvicorn
+yfinance

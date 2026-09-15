@@ -2,12 +2,16 @@ run = "python main.py"
 
 [deployment]
 run = ["sh", "-c", "python main.py"]
+runner = "gcr.io/releasemanager/node-changenotify"
+
+[cloudRun]
+deploymentService = "cloudrun"
 
 [nix]
 channel = "stable-24_05"
 
-[languages.python]
+[languages.python3]
 pattern = "**/*.py"
 
-[languages.python.languageServer]
-start = "pyright-langserver --stdio"
+[languages.python3.languageServer]
+start = ["python3", "-m", "pyright-langserver", "--stdio"]

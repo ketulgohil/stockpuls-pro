@@ -89,5 +89,5 @@ def status():
         from core.gemini import get_gemini_model
         model = get_gemini_model()
         if model:
-            return {"status": "ready", "model": "gemini-1.5-flash"}
+            return {"status": "ready", "model": "gemini-2.0-flash"}
     return {"status": "not_configured"}

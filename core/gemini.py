@@ -17,7 +17,7 @@ def configure_gemini(api_key: str):
 def get_gemini_model():
     if not GEMINI_API_KEY:
         return None
-    return genai.GenerativeModel('gemini-1.5-flash')
+    return genai.GenerativeModel('gemini-2.0-flash')
 
 
 def analyze_stock_with_gemini(symbol: str) -> dict:

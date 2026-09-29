@@ -46,12 +46,18 @@ function hideLoading() {
 function showTab(tabName) {
     document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-    
-    document.getElementById(tabName).classList.add('active');
-    document.querySelector(`.nav-item[data-tab="${tabName}"]`).classList.add('active');
-    
+
+    const targetTab = document.getElementById(tabName) || (tabName === 'sentinel' ? document.getElementById('sentinel-tab') : null) || (tabName === 'sentinel-tab' ? document.getElementById('sentinel') : null);
+    if (targetTab) {
+        targetTab.classList.add('active');
+    }
+    const navItem = document.querySelector(`.nav-item[data-tab="${tabName}"]`) || (tabName === 'sentinel-tab' ? document.querySelector(`.nav-item[data-tab="sentinel"]`) : null);
+    if (navItem) {
+        navItem.classList.add('active');
+    }
+
     localStorage.setItem('lastTab', tabName);
-    
+
     // Load data for specific tabs
     switch(tabName) {
         case 'dashboard': loadChart(); loadDashboardGainersLosers(); break;
@@ -60,6 +66,8 @@ function showTab(tabName) {
         case 'sector': loadSectors(); break;
         case 'news': loadNews(); break;
         case 'ai': loadAiTab(); break;
+        case 'sentinel':
+        case 'sentinel-tab': loadSentinelFeed(); loadSentinelDigests(); break;
         case 'heatmap': loadHeatmap(); break;
         case 'global': loadGlobalMarkets(); break;
         case 'ipo': loadIPOs(); loadMarketStatus(); break;
@@ -3711,6 +3719,618 @@ function startPortfolioTicker() {
     portfolioTickerInterval = setInterval(loadPortfolioTicker, 30000); // Every 30 seconds
 }
 
+// ===== HTML ESCAPE HELPER =====
+function escapeHtml(str) {
+    if (str == null) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+// ===== AI INTELLIGENCE DESK (SENTINEL) =====
+let sentinelWs = null;
+let sentinelWsReconnectTimer = null;
+let sentinelAudioCtx = null;
+let sentinelAlerts = [];
+let sentinelDigests = [];
+let sentinelCurrentFilter = 'ALL';
+
+// --- Web Audio Chime Synthesis ---
+function playSentinelAudioChime() {
+    try {
+        const chimeEnabled = localStorage.getItem('sentinel_audio_chime') !== 'false';
+        if (!chimeEnabled) return;
+
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return;
+
+        if (!sentinelAudioCtx) {
+            sentinelAudioCtx = new AudioContextClass();
+        }
+        if (sentinelAudioCtx.state === 'suspended') {
+            sentinelAudioCtx.resume();
+        }
+
+        const now = sentinelAudioCtx.currentTime;
+
+        // Tone 1: D5 (587.33 Hz) pleasant prompt
+        const osc1 = sentinelAudioCtx.createOscillator();
+        const gain1 = sentinelAudioCtx.createGain();
+        osc1.type = 'sine';
+        osc1.frequency.setValueAtTime(587.33, now);
+        gain1.gain.setValueAtTime(0.12, now);
+        gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+        osc1.connect(gain1);
+        gain1.connect(sentinelAudioCtx.destination);
+        osc1.start(now);
+        osc1.stop(now + 0.15);
+
+        // Tone 2: A5 (880 Hz) harmonic chime
+        const osc2 = sentinelAudioCtx.createOscillator();
+        const gain2 = sentinelAudioCtx.createGain();
+        osc2.type = 'sine';
+        osc2.frequency.setValueAtTime(880.0, now + 0.12);
+        gain2.gain.setValueAtTime(0.15, now + 0.12);
+        gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+        osc2.connect(gain2);
+        gain2.connect(sentinelAudioCtx.destination);
+        osc2.start(now + 0.12);
+        osc2.stop(now + 0.35);
+    } catch (e) {
+        console.warn('Sentinel audio chime error:', e);
+    }
+}
+
+function toggleSentinelAudio() {
+    const current = localStorage.getItem('sentinel_audio_chime') !== 'false';
+    const next = !current;
+    localStorage.setItem('sentinel_audio_chime', next ? 'true' : 'false');
+    updateSentinelAudioUI();
+    if (next) {
+        playSentinelAudioChime();
+        showToast('Sentinel audio chime enabled', 'info');
+    } else {
+        showToast('Sentinel audio alerts muted', 'info');
+    }
+}
+
+function updateSentinelAudioUI() {
+    const isEnabled = localStorage.getItem('sentinel_audio_chime') !== 'false';
+    const icon = document.getElementById('sentinelAudioIcon');
+    const text = document.getElementById('sentinelAudioText');
+    const btn = document.getElementById('sentinelAudioToggle');
+    if (icon) icon.textContent = isEnabled ? '🔊' : '🔇';
+    if (text) text.textContent = isEnabled ? 'ON' : 'MUTED';
+    if (btn) {
+        if (isEnabled) {
+            btn.classList.remove('muted');
+        } else {
+            btn.classList.add('muted');
+        }
+    }
+}
+
+// --- WebSocket Management ---
+function initSentinelWebSocket() {
+    if (sentinelWs && (sentinelWs.readyState === WebSocket.OPEN || sentinelWs.readyState === WebSocket.CONNECTING)) {
+        return;
+    }
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/sentinel`;
+
+    const wsBadge = document.getElementById('sentinelWsBadge');
+    if (wsBadge) {
+        wsBadge.textContent = 'WS: Connecting...';
+        wsBadge.className = 'badge neutral';
+    }
+
+    try {
+        sentinelWs = new WebSocket(wsUrl);
+
+        sentinelWs.onopen = () => {
+            if (wsBadge) {
+                wsBadge.textContent = 'WS: Live Connected';
+                wsBadge.className = 'badge positive';
+            }
+            if (sentinelWsReconnectTimer) {
+                clearTimeout(sentinelWsReconnectTimer);
+                sentinelWsReconnectTimer = null;
+            }
+        };
+
+        sentinelWs.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'SENTINEL_ALERT' && msg.alert) {
+                    onSentinelAlertReceived(msg.alert);
+                } else if (msg.type === 'SENTINEL_DIGEST' && msg.digest) {
+                    onSentinelDigestReceived(msg.digest);
+                }
+            } catch (err) {
+                console.error('Error parsing Sentinel WS message:', err);
+            }
+        };
+
+        sentinelWs.onclose = () => {
+            if (wsBadge) {
+                wsBadge.textContent = 'WS: Reconnecting...';
+                wsBadge.className = 'badge negative';
+            }
+            scheduleSentinelWsReconnect();
+        };
+
+        sentinelWs.onerror = () => {
+            if (wsBadge) {
+                wsBadge.textContent = 'WS: Error';
+                wsBadge.className = 'badge negative';
+            }
+            sentinelWs.close();
+        };
+    } catch (e) {
+        console.error('Failed to create Sentinel WebSocket:', e);
+        scheduleSentinelWsReconnect();
+    }
+}
+
+function scheduleSentinelWsReconnect() {
+    if (sentinelWsReconnectTimer) return;
+    sentinelWsReconnectTimer = setTimeout(() => {
+        sentinelWsReconnectTimer = null;
+        initSentinelWebSocket();
+    }, 5000);
+}
+
+function onSentinelAlertReceived(alert) {
+    const existingIdx = sentinelAlerts.findIndex(a => a.id === alert.id);
+    if (existingIdx >= 0) {
+        sentinelAlerts[existingIdx] = alert;
+    } else {
+        sentinelAlerts.unshift(alert);
+    }
+    sentinelAlerts = sentinelAlerts.slice(0, 100);
+
+    playSentinelAudioChime();
+
+    const toastType = alert.severity === 'CRITICAL' ? 'negative' : (alert.severity === 'HIGH' ? 'warning' : 'info');
+    showToast(`🧠 Sentinel Alert [${alert.symbol.replace('.NS', '')}]: ${alert.title}`, toastType);
+
+    renderSentinelFeed();
+}
+
+function onSentinelDigestReceived(digest) {
+    const existingIdx = sentinelDigests.findIndex(d => d.id === digest.id);
+    if (existingIdx >= 0) {
+        sentinelDigests[existingIdx] = digest;
+    } else {
+        sentinelDigests.unshift(digest);
+    }
+    sentinelDigests = sentinelDigests.slice(0, 30);
+
+    showToast(`📰 Market Routine Digest: ${digest.title}`, 'info');
+    renderSentinelDigests();
+}
+
+// --- Live Feed ---
+async function loadSentinelFeed() {
+    const feedContainer = document.getElementById('sentinelAlertFeed');
+    if (!feedContainer) return;
+
+    try {
+        const res = await api('/api/sentinel/feed');
+        if (res && res.alerts) {
+            sentinelAlerts = res.alerts;
+            renderSentinelFeed();
+        } else {
+            feedContainer.innerHTML = '<p class="placeholder">No sentinel alerts recorded yet. Surveillance engine is active.</p>';
+        }
+    } catch (e) {
+        console.error('Error loading sentinel feed:', e);
+        feedContainer.innerHTML = '<p class="placeholder">Error loading intelligence feed.</p>';
+    }
+}
+
+function filterSentinelFeed(severity, btn) {
+    sentinelCurrentFilter = severity;
+    const parent = btn?.parentElement;
+    if (parent) {
+        parent.querySelectorAll('.timeframe-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+    }
+    renderSentinelFeed();
+}
+
+function renderSentinelFeed() {
+    const feedContainer = document.getElementById('sentinelAlertFeed');
+    const countBadge = document.getElementById('sentinelAlertCountBadge');
+    if (!feedContainer) return;
+
+    const filtered = sentinelAlerts.filter(a => {
+        if (sentinelCurrentFilter === 'ALL') return true;
+        return a.severity === sentinelCurrentFilter;
+    });
+
+    if (countBadge) {
+        countBadge.textContent = `${filtered.length} Alert${filtered.length === 1 ? '' : 's'}`;
+        countBadge.className = `badge ${filtered.length > 0 ? 'positive' : 'neutral'}`;
+    }
+
+    if (!filtered || filtered.length === 0) {
+        feedContainer.innerHTML = `<p class="placeholder">No ${sentinelCurrentFilter === 'ALL' ? '' : sentinelCurrentFilter.toLowerCase()} alerts in feed. Surveillance engine is actively monitoring.</p>`;
+        return;
+    }
+
+    feedContainer.innerHTML = filtered.map(alert => renderSentinelAlertCard(alert)).join('');
+}
+
+function renderSentinelAlertCard(alert) {
+    const severityClass = alert.severity === 'CRITICAL' ? 'severity-critical' : (alert.severity === 'HIGH' ? 'severity-high' : 'severity-info');
+    const cleanSym = (alert.symbol || '').replace('.NS', '');
+    const analysis = alert.analysis || {};
+    const findings = alert.findings || [];
+
+    return `
+        <div class="sentinel-alert-card ${severityClass}" id="card_${alert.id}">
+            <div class="sentinel-card-header">
+                <div class="sentinel-header-left">
+                    <span class="sentinel-symbol-pill" onclick="selectStock('${alert.symbol}'); showTab('dashboard');" title="Click to view chart on dashboard">
+                        ${cleanSym}
+                    </span>
+                    <span class="sentinel-severity-badge ${severityClass}">${alert.severity}</span>
+                    <h4 class="sentinel-card-title">${escapeHtml(alert.title)}</h4>
+                </div>
+                <div class="sentinel-header-right">
+                    <span class="sentinel-time">${alert.created_at || alert.data_as_of || ''}</span>
+                </div>
+            </div>
+
+            <p class="sentinel-summary">${escapeHtml(alert.summary)}</p>
+
+            <!-- Bull vs Bear Meter & Consensus -->
+            ${renderBullBearMeter(analysis)}
+
+            <!-- Bull vs Bear Breakdown Grid -->
+            <div class="sentinel-dossier-grid">
+                <div class="sentinel-case-box bull-case-box">
+                    <div class="case-header">
+                        <span class="case-icon">🐂</span>
+                        <strong>Bull Thesis</strong>
+                    </div>
+                    <p class="case-text">${escapeHtml(analysis.bull_case || 'No bull catalysts recorded.')}</p>
+                    ${analysis.bull_catalysts && analysis.bull_catalysts.length > 0 ? `
+                        <div class="catalyst-tags">
+                            ${analysis.bull_catalysts.map(c => `<span class="catalyst-tag bull-tag">▲ ${escapeHtml(c)}</span>`).join('')}
+                        </div>
+                    ` : ''}
+                </div>
+
+                <div class="sentinel-case-box bear-case-box">
+                    <div class="case-header">
+                        <span class="case-icon">🐻</span>
+                        <strong>Bear Thesis</strong>
+                    </div>
+                    <p class="case-text">${escapeHtml(analysis.bear_case || 'No bear risks recorded.')}</p>
+                    ${analysis.bear_risks && analysis.bear_risks.length > 0 ? `
+                        <div class="catalyst-tags">
+                            ${analysis.bear_risks.map(r => `<span class="catalyst-tag bear-tag">▼ ${escapeHtml(r)}</span>`).join('')}
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+
+            <!-- Key Levels & Strategic Target -->
+            <div class="sentinel-levels-row">
+                <div class="level-item">
+                    <span class="level-label">Key Support:</span>
+                    <span class="level-value">${analysis.key_support != null ? '₹' + Number(analysis.key_support).toFixed(2) : 'N/A'}</span>
+                </div>
+                <div class="level-item">
+                    <span class="level-label">Invalidation (SL):</span>
+                    <span class="level-value stop-loss">${analysis.invalidation_level != null ? '₹' + Number(analysis.invalidation_level).toFixed(2) : 'N/A'}</span>
+                </div>
+                <div class="level-item">
+                    <span class="level-label">Target Resistance:</span>
+                    <span class="level-value target-price">${analysis.target_resistance != null ? '₹' + Number(analysis.target_resistance).toFixed(2) : 'N/A'}</span>
+                </div>
+            </div>
+
+            <!-- Specialist Desk Findings -->
+            ${findings.length > 0 ? `
+                <div class="sentinel-findings-section">
+                    <div class="findings-header">
+                        <span class="findings-title">Specialist Desk Evidence (${findings.length})</span>
+                    </div>
+                    <div class="findings-list">
+                        ${findings.map(f => renderDeskFinding(f)).join('')}
+                    </div>
+                </div>
+            ` : ''}
+
+            <!-- Card Footer Actions -->
+            <div class="sentinel-card-footer">
+                <button class="btn-sm btn-primary" onclick="selectStock('${alert.symbol}'); showTab('dashboard');">
+                    📈 View Chart
+                </button>
+                <button class="btn-sm btn-secondary" onclick="investigateSymbolSentinel('${alert.symbol}')">
+                    🔬 Deep Re-Scan
+                </button>
+                <button class="btn-sm btn-secondary" onclick="addToWatchlist('${alert.symbol}')">
+                    + Watchlist
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+function renderBullBearMeter(analysis) {
+    if (!analysis) return '';
+
+    const bias = analysis.consensus_bias || 'NEUTRAL';
+    const confidence = Math.min(100, Math.max(0, analysis.confidence_score ?? 50));
+
+    let biasLabel = bias.replace(/_/g, ' ');
+    let biasClass = 'neutral';
+    let bullRatio = 50;
+
+    if (bias === 'STRONG_BULLISH') {
+        biasClass = 'positive';
+        bullRatio = Math.max(65, confidence);
+    } else if (bias === 'MODERATE_BULLISH') {
+        biasClass = 'positive';
+        bullRatio = Math.max(55, Math.round(50 + confidence / 4));
+    } else if (bias === 'STRONG_BEARISH') {
+        biasClass = 'negative';
+        bullRatio = Math.min(35, 100 - confidence);
+    } else if (bias === 'MODERATE_BEARISH') {
+        biasClass = 'negative';
+        bullRatio = Math.min(45, Math.round(50 - confidence / 4));
+    } else {
+        bullRatio = 50;
+        biasClass = 'neutral';
+    }
+
+    const bearRatio = 100 - bullRatio;
+
+    return `
+        <div class="bull-bear-meter-container">
+            <div class="meter-header">
+                <div class="consensus-label">
+                    <span>Consensus Bias:</span>
+                    <strong class="bias-badge ${biasClass}">${biasLabel}</strong>
+                </div>
+                <div class="confidence-label">
+                    <span>Confidence Score:</span>
+                    <strong>${confidence}%</strong>
+                </div>
+            </div>
+            <div class="bull-bear-meter">
+                <div class="meter-bar bull-bar" style="width: ${bullRatio}%;">
+                    ${bullRatio >= 20 ? `<span>Bull ${bullRatio}%</span>` : ''}
+                </div>
+                <div class="meter-bar bear-bar" style="width: ${bearRatio}%;">
+                    ${bearRatio >= 20 ? `<span>Bear ${bearRatio}%</span>` : ''}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderDeskFinding(finding) {
+    const desk = finding.desk || 'GENERAL';
+    const deskIcon = {
+        'ACTIVITY': '⚡',
+        'TECHNICAL': '📐',
+        'NEWS': '📰',
+        'FUNDAMENTALS': '📊'
+    }[desk] || '◈';
+
+    const sigClass = finding.significance === 'CRITICAL' ? 'sig-critical' : (finding.significance === 'HIGH' ? 'sig-high' : 'sig-medium');
+
+    const metricsStr = finding.metrics && Object.keys(finding.metrics).length > 0
+        ? Object.entries(finding.metrics).map(([k, v]) => `<span class="metric-pill"><strong>${escapeHtml(k)}:</strong> ${escapeHtml(String(v))}</span>`).join(' ')
+        : '';
+
+    return `
+        <div class="desk-finding-item">
+            <div class="finding-top">
+                <span class="desk-badge desk-${desk.toLowerCase()}">${deskIcon} ${desk} DESK</span>
+                <span class="significance-badge ${sigClass}">${finding.significance}</span>
+                <span class="finding-headline">${escapeHtml(finding.headline)}</span>
+            </div>
+            ${metricsStr ? `<div class="finding-metrics">${metricsStr}</div>` : ''}
+        </div>
+    `;
+}
+
+// --- Routine Digests ---
+async function loadSentinelDigests() {
+    const container = document.getElementById('sentinelDigestsContainer');
+    if (!container) return;
+
+    try {
+        const res = await api('/api/sentinel/digests');
+        if (res && res.digests) {
+            sentinelDigests = res.digests;
+            renderSentinelDigests();
+        } else {
+            container.innerHTML = '<p class="placeholder">No routine briefings recorded yet.</p>';
+        }
+    } catch (e) {
+        console.error('Error loading sentinel digests:', e);
+        container.innerHTML = '<p class="placeholder">Error loading routine digests.</p>';
+    }
+}
+
+function renderSentinelDigests() {
+    const container = document.getElementById('sentinelDigestsContainer');
+    if (!container) return;
+
+    if (!sentinelDigests || sentinelDigests.length === 0) {
+        container.innerHTML = '<p class="placeholder">No scheduled briefings yet. Click any routine button above to generate on-demand.</p>';
+        return;
+    }
+
+    container.innerHTML = sentinelDigests.map(d => renderSentinelDigestCard(d)).join('');
+}
+
+function renderSentinelDigestCard(d) {
+    const routineIcon = {
+        'PRE_MARKET': '🌅',
+        'MIDDAY_PULSE': '⚡',
+        'POST_MARKET_WRAP': '📊'
+    }[d.routine_type] || '📅';
+
+    const routineName = {
+        'PRE_MARKET': 'Pre-Market Briefing (08:30 IST)',
+        'MIDDAY_PULSE': 'Midday Pulse (12:30 IST)',
+        'POST_MARKET_WRAP': 'Post-Market Wrap (15:40 IST)'
+    }[d.routine_type] || d.routine_type;
+
+    return `
+        <div class="routine-digest-box" id="digest_${d.id}">
+            <div class="digest-header">
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <span class="routine-icon-badge">${routineIcon}</span>
+                    <strong class="digest-type-label">${routineName}</strong>
+                    <span class="digest-title-text">${escapeHtml(d.title)}</span>
+                </div>
+                <span class="digest-time">${d.timestamp || ''}</span>
+            </div>
+
+            <p class="digest-summary-text">${escapeHtml(d.summary)}</p>
+
+            ${d.macro_cues && d.macro_cues.length > 0 ? `
+                <div class="digest-section">
+                    <span class="section-label">🌐 Macro & Global Cues:</span>
+                    <div class="cues-list">
+                        ${d.macro_cues.map(c => `<span class="cue-pill">◈ ${escapeHtml(c)}</span>`).join('')}
+                    </div>
+                </div>
+            ` : ''}
+
+            ${d.top_stocks_in_focus && d.top_stocks_in_focus.length > 0 ? `
+                <div class="digest-section">
+                    <span class="section-label">🎯 Key Stocks in Focus:</span>
+                    <div class="focus-stocks-list">
+                        ${d.top_stocks_in_focus.map(sym => `
+                            <button class="focus-stock-btn" onclick="selectStock('${sym}'); showTab('dashboard');">
+                                ${sym.replace('.NS', '')}
+                            </button>
+                        `).join('')}
+                    </div>
+                </div>
+            ` : ''}
+
+            ${((d.sector_leaders && d.sector_leaders.length > 0) || (d.sector_laggards && d.sector_laggards.length > 0)) ? `
+                <div class="digest-sectors-row">
+                    ${d.sector_leaders && d.sector_leaders.length > 0 ? `
+                        <div class="sector-subgroup">
+                            <span class="section-label positive">▲ Sector Leaders:</span>
+                            <div class="sector-pills">
+                                ${d.sector_leaders.map(s => `<span class="badge positive">${escapeHtml(s)}</span>`).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+                    ${d.sector_laggards && d.sector_laggards.length > 0 ? `
+                        <div class="sector-subgroup">
+                            <span class="section-label negative">▼ Sector Laggards:</span>
+                            <div class="sector-pills">
+                                ${d.sector_laggards.map(s => `<span class="badge negative">${escapeHtml(s)}</span>`).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+                </div>
+            ` : ''}
+        </div>
+    `;
+}
+
+// --- On-Demand Stock Investigation ---
+async function investigateSymbolSentinel(symbol) {
+    const input = document.getElementById('sentinelSymbolInput');
+    const sym = (symbol || input?.value || '').trim().toUpperCase();
+    if (!sym) {
+        showToast('Please enter a valid stock symbol', 'warning');
+        return;
+    }
+
+    const formattedSym = sym.includes('.') || sym.startsWith('^') ? sym : `${sym}.NS`;
+    if (input) input.value = formattedSym;
+
+    const resultContainer = document.getElementById('sentinelInvestigationResult');
+    const btn = document.getElementById('sentinelInvestigateBtn');
+
+    if (resultContainer) {
+        resultContainer.style.display = 'block';
+        resultContainer.innerHTML = `
+            <div class="sentinel-scanning-state">
+                <div class="spinner"></div>
+                <div class="scan-progress-text">
+                    <strong>Scanning ${formattedSym} Across 4 Specialist Desks...</strong>
+                    <div class="desk-scan-indicators">
+                        <span>⚡ Activity Desk</span> • <span>📐 Technical Desk</span> • <span>📰 News Desk</span> • <span>📊 Fundamentals Desk</span> • <span>🤖 Adversarial AI Synthesizer</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    if (btn) btn.disabled = true;
+
+    try {
+        const alert = await api(`/api/sentinel/analyze/${encodeURIComponent(formattedSym)}`, {
+            method: 'POST'
+        });
+
+        if (alert && alert.symbol) {
+            resultContainer.innerHTML = `
+                <div class="investigation-result-wrapper">
+                    <div class="result-banner">
+                        <span>🔬 Comprehensive Intelligence Dossier: <strong>${alert.symbol.replace('.NS', '')}</strong></span>
+                        <span class="badge ${alert.severity === 'CRITICAL' ? 'negative' : (alert.severity === 'HIGH' ? 'warning' : 'positive')}">${alert.severity}</span>
+                    </div>
+                    ${renderSentinelAlertCard(alert)}
+                </div>
+            `;
+            showToast(`Investigation complete for ${formattedSym}`, 'success');
+        } else {
+            resultContainer.innerHTML = `<p class="placeholder">Failed to generate intelligence dossier for ${formattedSym}. ${alert.error || ''}</p>`;
+        }
+    } catch (e) {
+        console.error('Error investigating symbol:', e);
+        if (resultContainer) {
+            resultContainer.innerHTML = `<p class="placeholder">Error investigating ${formattedSym}: ${e.message}</p>`;
+        }
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+// --- Trigger Scheduled Routine Manually ---
+async function triggerSentinelRoutine(routineType) {
+    showToast(`Triggering ${routineType} routine...`, 'info');
+    showLoading();
+    try {
+        const res = await api(`/api/sentinel/routine/${routineType}`, {
+            method: 'POST'
+        });
+        hideLoading();
+        if (res && res.message) {
+            showToast(res.message, 'success');
+            await loadSentinelDigests();
+        } else {
+            showToast(res.error || 'Failed to trigger routine', 'negative');
+        }
+    } catch (e) {
+        hideLoading();
+        console.error('Error triggering routine:', e);
+        showToast('Error triggering routine: ' + e.message, 'negative');
+    }
+}
+
 // Init
 document.addEventListener('DOMContentLoaded', () => {
     // Theme auto-detection
@@ -3722,23 +4342,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     initChart();
-    
+
     const lastStock = localStorage.getItem('lastStock');
     const lastTab = localStorage.getItem('lastTab');
-    
+
     if (lastStock) {
         currentSymbol = lastStock;
         document.getElementById('currentStockName').textContent = lastStock.replace('.NS', '');
         const ss = document.getElementById('stockSearch');
         if (ss) ss.value = lastStock;
     }
-    
+
     if (lastTab) {
         showTab(lastTab);
     } else {
         loadChart();
     }
-    
+
     loadDashboardGainersLosers();
     updateMarketStatus();
     updateMarketPulse();
@@ -3763,4 +4383,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Connect WebSocket for live index prices
     setTimeout(connectWebSocket, 1000);
+
+    // Initialize Sentinel AI Desk & Web Audio UI
+    updateSentinelAudioUI();
+    setTimeout(initSentinelWebSocket, 1500);
 });

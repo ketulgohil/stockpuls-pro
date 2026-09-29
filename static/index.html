@@ -72,6 +72,10 @@
                     <span class="nav-icon">◈</span>
                     <span>AI Analysis</span>
                 </a>
+                <a class="nav-item" data-tab="sentinel" onclick="showTab('sentinel')">
+                    <span class="nav-icon">🧠</span>
+                    <span>AI Intelligence Desk</span>
+                </a>
                 <a class="nav-item" data-tab="heatmap" onclick="showTab('heatmap')">
                     <span class="nav-icon">▦</span>
                     <span>Heatmap</span>
@@ -762,6 +766,103 @@
                         </div>
                         <div id="sentimentResult" class="mt-2">
                             <p class="placeholder">Scan news sentiment for any stock</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========== AI INTELLIGENCE DESK (SENTINEL) TAB ========== -->
+                <div id="sentinel" class="tab-content">
+                    <div id="sentinel-tab">
+                        <div class="page-header" style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px;">
+                            <div>
+                                <h1 style="display: flex; align-items: center; gap: 10px;">
+                                    <span>AI Intelligence Desk</span>
+                                    <span class="badge" style="background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; font-size: 11px; padding: 3px 8px; border-radius: 6px; letter-spacing: 0.5px;">SENTINEL AI</span>
+                                </h1>
+                                <p>Multi-Desk Autonomous Surveillance & Adversarial Bull vs. Bear Dossier Engine</p>
+                            </div>
+                            <div class="sentinel-top-controls" style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                                <div class="sentinel-status-pill" id="sentinelStatusPill">
+                                    <span class="pulse"></span>
+                                    <span id="sentinelSurveillanceStatus">Surveillance Active</span>
+                                </div>
+                                <span id="sentinelWsBadge" class="badge" style="background: var(--bg-card); border: 1px solid var(--border); font-size: 11px;">WS: Connecting...</span>
+                                <button id="sentinelAudioToggle" class="btn-secondary" onclick="toggleSentinelAudio()" title="Toggle Web Audio Sentinel Alert Chimes">
+                                    <span id="sentinelAudioIcon">🔊</span> Audio: <span id="sentinelAudioText">ON</span>
+                                </button>
+                                <button class="btn-secondary" onclick="loadSentinelFeed(); loadSentinelDigests();" title="Refresh Live Feed & Digests">
+                                    ⟳ Refresh
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- On-Demand Deep Investigation Search Section -->
+                        <div class="card mb-2 sentinel-investigate-card">
+                            <div class="card-header">
+                                <h3>🔬 On-Demand Stock Investigation</h3>
+                                <span class="badge" style="background: rgba(99,102,241,0.15); color: #818cf8; border: 1px solid rgba(99,102,241,0.3);">4 Specialist Desks + Gemini AI</span>
+                            </div>
+                            <div class="card-body">
+                                <div class="tool-form" style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;">
+                                    <div class="filter-group" style="flex: 1; min-width: 250px;">
+                                        <label for="sentinelSymbolInput">NSE Stock Symbol</label>
+                                        <input type="text" id="sentinelSymbolInput" placeholder="e.g. RELIANCE.NS, TATAMOTORS.NS, HDFCBANK.NS" value="RELIANCE.NS" onkeypress="if(event.key==='Enter')investigateSymbolSentinel()">
+                                    </div>
+                                    <button class="btn-primary" id="sentinelInvestigateBtn" onclick="investigateSymbolSentinel()" style="padding: 10px 20px; font-weight: 600;">
+                                        ⚡ Run Multi-Desk Investigation
+                                    </button>
+                                </div>
+                                <div id="sentinelInvestigationResult" class="sentinel-investigation-result mt-2" style="display: none;">
+                                    <!-- Populated by JS -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Scheduled Market Routines Section -->
+                        <div class="card mb-2">
+                            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                                <div>
+                                    <h3>📅 Scheduled Market Routines</h3>
+                                    <p style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">Automated Intelligence Briefings (IST Schedule)</p>
+                                </div>
+                                <div class="routine-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                    <button class="btn-secondary routine-btn" onclick="triggerSentinelRoutine('PRE_MARKET')">
+                                        🌅 Pre-Market (08:30 IST)
+                                    </button>
+                                    <button class="btn-secondary routine-btn" onclick="triggerSentinelRoutine('MIDDAY_PULSE')">
+                                        ⚡ Midday Pulse (12:30 IST)
+                                    </button>
+                                    <button class="btn-secondary routine-btn" onclick="triggerSentinelRoutine('POST_MARKET_WRAP')">
+                                        📊 Post-Market Wrap (15:40 IST)
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div id="sentinelDigestsContainer" class="sentinel-digests-grid">
+                                    <p class="placeholder">Loading daily routine briefings...</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Live Intelligence Tape & Flash Alerts Feed Section -->
+                        <div class="card">
+                            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <h3>📡 Live Sentinel Intelligence Tape</h3>
+                                    <span id="sentinelAlertCountBadge" class="badge positive">0 Alerts</span>
+                                </div>
+                                <div class="sentinel-feed-filters" style="display: flex; gap: 8px; align-items: center;">
+                                    <button class="timeframe-btn active" onclick="filterSentinelFeed('ALL', this)">All</button>
+                                    <button class="timeframe-btn" onclick="filterSentinelFeed('CRITICAL', this)">Critical</button>
+                                    <button class="timeframe-btn" onclick="filterSentinelFeed('HIGH', this)">High</button>
+                                    <button class="timeframe-btn" onclick="filterSentinelFeed('INFO', this)">Info</button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div id="sentinelAlertFeed" class="sentinel-feed-container">
+                                    <p class="placeholder">Listening for autonomous sentinel alerts and desk findings...</p>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

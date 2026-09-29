@@ -9,8 +9,10 @@ from api import (
     stocks, screener, signals, portfolio, sector, tools,
     news, backtest, market, compare, patterns,
     correlation, breadth, fundamentals, analysis, alerts, export, ai, gemini, advanced, more, features, gold, analytics,
-    mutual_funds, currency, block_deals, quarterly_results, screener_strategies, downstox
+    mutual_funds, currency, block_deals, quarterly_results, screener_strategies, downstox, sentinel
 )
+from core.sentinel.engine import sentinel_engine
+from core.sentinel.dispatcher import dispatcher
 
 app = FastAPI(
     title="Indian Stock Market Analysis Platform",
@@ -21,6 +23,11 @@ app = FastAPI(
 @app.on_event("startup")
 async def startup_event():
     print("🚀 StockPulse Pro started successfully!")
+    sentinel_engine.start()
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    sentinel_engine.stop()
 
 app.include_router(stocks.router)
 app.include_router(screener.router)
@@ -52,6 +59,7 @@ app.include_router(block_deals.router)
 app.include_router(quarterly_results.router)
 app.include_router(screener_strategies.router)
 app.include_router(downstox.router)
+app.include_router(sentinel.router)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -130,6 +138,21 @@ async def websocket_live_prices(websocket: WebSocket):
         ws_manager.disconnect(websocket)
     except Exception:
         ws_manager.disconnect(websocket)
+
+
+# ===== WebSocket Sentinel Real-time Alerts & Digests =====
+
+@app.websocket("/ws/sentinel")
+async def websocket_sentinel(websocket: WebSocket):
+    await websocket.accept()
+    dispatcher.register_ws(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        dispatcher.unregister_ws(websocket)
+    except Exception:
+        dispatcher.unregister_ws(websocket)
 
 
 @app.get("/api/options/chain")

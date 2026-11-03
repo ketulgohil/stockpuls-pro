@@ -76,6 +76,10 @@
                     <span class="nav-icon">🧠</span>
                     <span>AI Intelligence Desk</span>
                 </a>
+                <a class="nav-item" data-tab="upstox-intraday" onclick="showTab('upstox-intraday')">
+                    <span class="nav-icon">⚡</span>
+                    <span>Upstox Intraday Desk</span>
+                </a>
                 <a class="nav-item" data-tab="heatmap" onclick="showTab('heatmap')">
                     <span class="nav-icon">▦</span>
                     <span>Heatmap</span>
@@ -867,7 +871,191 @@
                     </div>
                 </div>
 
+                <!-- ========== UPSTOX INTRADAY DESK TAB ========== -->
+                <div id="upstox-intraday" class="tab-content">
+                    <div class="page-header">
+                        <h1 style="display: flex; align-items: center; gap: 12px;">
+                            <span style="font-size: 32px;">⚡</span> Upstox Intraday Desk
+                        </h1>
+                        <p>High-frequency intraday surveillance and paper trading terminal</p>
+                    </div>
+
+                    <!-- Intraday KPI Bar -->
+                    <div class="upstox-kpi-bar">
+                        <div class="kpi-card">
+                            <span class="kpi-label">Virtual Cash</span>
+                            <span id="upstoxCash" class="kpi-value">₹0.00</span>
+                        </div>
+                        <div class="kpi-card">
+                            <span class="kpi-label">Live MTM P&L</span>
+                            <span id="upstoxMtm" class="kpi-value">₹0.00</span>
+                        </div>
+                        <div class="kpi-card">
+                            <span class="kpi-label">Open Positions</span>
+                            <span id="upstoxOpenPos" class="kpi-value">0</span>
+                        </div>
+                        <div class="kpi-card">
+                            <span class="kpi-label">Realized P&L</span>
+                            <span id="upstoxRealized" class="kpi-value">₹0.00</span>
+                        </div>
+                        <div class="kpi-card">
+                            <span class="kpi-label">Engine Status</span>
+                            <span id="upstoxEngineStatus" class="kpi-badge">Connecting...</span>
+                        </div>
+                    </div>
+
+                    <!-- Sub-navigation -->
+                    <div class="upstox-sub-nav">
+                        <button class="sub-nav-btn active" onclick="showUpstoxSubTab('upstox-scanner', this)">Scanner</button>
+                        <button class="sub-nav-btn" onclick="showUpstoxSubTab('upstox-orb', this)">ORB Tracker</button>
+                        <button class="sub-nav-btn" onclick="showUpstoxSubTab('upstox-signals', this)">Signals</button>
+                        <button class="sub-nav-btn" onclick="showUpstoxSubTab('upstox-paper', this)">Paper Trading</button>
+                        <button class="sub-nav-btn" onclick="showUpstoxSubTab('upstox-backtest', this)">Backtester</button>
+                    </div>
+
+                    <!-- Sub-tab: Scanner -->
+                    <div id="upstox-scanner" class="upstox-sub-content active">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>NIFTY 50 Live Scanner Matrix</h3>
+                                <span class="badge positive">Real-time Feed</span>
+                            </div>
+                            <div class="upstox-matrix-container">
+                                <table class="upstox-matrix-table" id="upstoxScannerMatrix">
+                                    <thead>
+                                        <tr>
+                                            <th>Symbol</th>
+                                            <th>LTP</th>
+                                            <th>Change %</th>
+                                            <th>VWAP Diff %</th>
+                                            <th>Volume Spike</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr><td colspan="6" class="loading-cell">Connecting to Upstox WebSocket...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sub-tab: ORB Tracker -->
+                    <div id="upstox-orb" class="upstox-sub-content">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>ORB Breakout Tracker (15m Range)</h3>
+                                <span class="badge">Intraday Volatility</span>
+                            </div>
+                            <div id="upstoxOrbResults" class="upstox-orb-grid">
+                                <p class="placeholder">Scanning for ORB breakouts...</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sub-tab: Signals -->
+                    <div id="upstox-signals" class="upstox-sub-content">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Confluence Buy Signals Board</h3>
+                                <span class="badge positive">High Probability</span>
+                            </div>
+                            <div id="upstoxSignalsBoard" class="upstox-signals-grid">
+                                <p class="placeholder">Analyzing confluence signals...</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sub-tab: Paper Trading -->
+                    <div id="upstox-paper" class="upstox-sub-content">
+                        <div class="grid-2">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h3>Order Terminal</h3>
+                                </div>
+                                <div class="upstox-order-form">
+                                    <div class="filter-group">
+                                        <label>Symbol</label>
+                                        <input type="text" id="paperSymbol" placeholder="e.g. RELIANCE" style="text-transform: uppercase;">
+                                    </div>
+                                    <div class="filter-group">
+                                        <label>Quantity</label>
+                                        <input type="number" id="paperQty" value="1" min="1">
+                                    </div>
+                                    <div class="filter-group">
+                                        <label>Stop Loss (₹)</label>
+                                        <input type="number" id="paperSL" step="0.05">
+                                    </div>
+                                    <div class="filter-group">
+                                        <label>Target (₹)</label>
+                                        <input type="number" id="paperTarget" step="0.05">
+                                    </div>
+                                    <button class="btn-primary" onclick="executePaperOrder()">🚀 1-Click Buy</button>
+                                </div>
+                            </div>
+                            <div class="card">
+                                <div class="card-header">
+                                    <h3>Live MTM Positions</h3>
+                                </div>
+                                <div class="upstox-positions-table-wrapper">
+                                    <table class="upstox-positions-table" id="paperPositionsTable">
+                                        <thead>
+                                            <tr>
+                                                <th>Symbol</th>
+                                                <th>Qty</th>
+                                                <th>Entry</th>
+                                                <th>LTP</th>
+                                                <th>P&L</th>
+                                                <th>Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr><td colspan="6" class="placeholder">No open positions</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card mt-2">
+                            <div class="card-header">
+                                <h3>Trade Log</h3>
+                            </div>
+                            <div id="paperTradeLog" class="trade-log-container">
+                                <p class="placeholder">No trades executed yet</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sub-tab: Backtester -->
+                    <div id="upstox-backtest" class="upstox-sub-content">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Intraday ORB Backtester</h3>
+                            </div>
+                            <div class="upstox-backtest-form">
+                                <div class="filter-group">
+                                    <label>Symbol</label>
+                                    <input type="text" id="btSymbol" value="RELIANCE">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Interval</label>
+                                    <select id="btInterval">
+                                        <option value="1minute">1 Minute</option>
+                                        <option value="5minute" selected>5 Minutes</option>
+                                        <option value="15minute">15 Minutes</option>
+                                    </select>
+                                </div>
+                                <button class="btn-primary" onclick="runUpstoxBacktest()">Run Backtest</button>
+                            </div>
+                            <div id="btResults" class="mt-2">
+                                <p class="placeholder">Configure and run a backtest</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- ========== PORTFOLIO TAB ========== -->
+
                 <div id="portfolio" class="tab-content">
                     <div class="page-header">
                         <h1>My Portfolio</h1>
@@ -1819,6 +2007,33 @@
     <div id="loading" class="loading hidden">
         <div class="spinner"></div>
         <p>Loading...</p>
+    </div>
+
+    <!-- Upstox Market Depth DOM Modal -->
+    <div id="upstoxDepthModal" class="upstox-depth-modal" onclick="closeUpstoxDepthModal()">
+        <div class="upstox-depth-modal-content" onclick="event.stopPropagation()">
+            <div class="upstox-depth-modal-header">
+                <h3 id="depthModalSymbol">Market Depth</h3>
+                <button class="modal-close" onclick="closeUpstoxDepthModal()">&times;</button>
+            </div>
+            <div class="upstox-depth-modal-body">
+                <div class="upstox-dom-container">
+                    <div class="upstox-dom-column bids">
+                        <h4>Bids</h4>
+                        <div id="depthModalBids" class="dom-rows"></div>
+                    </div>
+                    <div class="upstox-dom-mid">
+                        <div class="dom-mid-label">Spread</div>
+                        <div id="depthModalSpread" class="dom-mid-value">--</div>
+                        <div class="dom-mid-price" id="depthModalLtp">--</div>
+                    </div>
+                    <div class="upstox-dom-column asks">
+                        <h4>Asks</h4>
+                        <div id="depthModalAsks" class="dom-rows"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="/static/js/app.js?v=4.2"></script>

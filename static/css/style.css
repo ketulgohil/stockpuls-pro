@@ -3624,3 +3624,77 @@ body { --chart-bg: var(--bg-card); }
     cursor: pointer;
 }
 
+/* ==========================================================================
+   UPSTOX INTRADAY DESK STYLES
+   ========================================================================== */
+.upstox-kpi-bar {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+}
+@media(max-width: 1200px) {
+    .upstox-kpi-bar { grid-template-columns: repeat(3, 1fr); }
+}
+@media(max-width: 768px) {
+    .upstox-kpi-bar { grid-template-columns: repeat(1, 1fr); }
+}
+.upstox-kpi-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    text-align: center;
+}
+.upstox-kpi-card .kpi-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+}
+.upstox-kpi-card .kpi-value {
+    font-size: 18px;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.upstox-subnav {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 12px;
+    overflow-x: auto;
+}
+.subnav-btn {
+    padding: 8px 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+    white-space: nowrap;
+}
+.subnav-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+.subnav-btn.active {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+    box-shadow: 0 4px 12px var(--accent-glow);
+}
+
+.upstox-sub-content {
+    display: none;
+}
+.upstox-sub-content.active {
+    display: block;
+    animation: fadeIn 0.3s ease;
+}
+

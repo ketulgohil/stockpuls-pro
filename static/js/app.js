@@ -4388,3 +4388,335 @@ document.addEventListener('DOMContentLoaded', () => {
     updateSentinelAudioUI();
     setTimeout(initSentinelWebSocket, 1500);
 });
+
+async function showUpstoxSubTab(tabId, btn) {
+    document.querySelectorAll('.upstox-sub-content').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.sub-nav-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById(tabId).classList.add('active');
+    btn.classList.add('active');
+}
+
+const UpstoxDesk = {
+    ws: null,
+    reconnectInterval: 5000,
+    lastPrices: {},
+    audioCtx: null,
+
+    async init() {
+        this.connectWebSocket();
+        await this.updateKPIs();
+        await this.loadORB();
+        await this.loadSignals();
+        await this.updatePaperPortfolio();
+    },
+
+    connectWebSocket() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws/upstox/live`;
+
+        this.ws = new WebSocket(wsUrl);
+
+        this.ws.onopen = () => {
+            console.log('Upstox WebSocket Connected');
+            document.getElementById('upstoxEngineStatus').textContent = 'Active';
+            document.getElementById('upstoxEngineStatus').className = 'kpi-badge positive';
+        };
+
+        this.ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            this.handleMarketUpdate(data);
+        };
+
+        this.ws.onclose = () => {
+            document.getElementById('upstoxEngineStatus').textContent = 'Reconnecting...';
+            document.getElementById('upstoxEngineStatus').className = 'kpi-badge negative';
+            setTimeout(() => this.connectWebSocket(), this.reconnectInterval);
+        };
+
+        this.ws.onerror = (err) => {
+            console.error('Upstox WebSocket Error:', err);
+        };
+    },
+
+    handleMarketUpdate(data) {
+        if (data.symbol && data.last_price) {
+            const symbol = data.symbol;
+            const price = data.last_price;
+            const prevPrice = this.lastPrices[symbol];
+
+            this.lastPrices[symbol] = price;
+
+            // Update Scanner Matrix
+            const row = document.querySelector(`#upstoxScannerMatrix tr[data-symbol="${symbol}"]`);
+            if (row) {
+                const priceCell = row.querySelector('.ltp-cell');
+                if (priceCell) {
+                    priceCell.textContent = price.toFixed(2);
+                    const flashClass = price > prevPrice ? 'flash-green' : price < prevPrice ? 'flash-red' : '';
+                    priceCell.classList.remove('flash-green', 'flash-red');
+                    if (flashClass) {
+                        void priceCell.offsetWidth; // Trigger reflow
+                        priceCell.classList.add(flashClass);
+                    }
+                }
+                // Update other cells if provided in data
+                if (data.change_percent) {
+                    const chgCell = row.querySelector('.chg-cell');
+                    if (chgCell) chgCell.textContent = `${data.change_percent > 0 ? '+' : ''}${data.change_percent.toFixed(2)}%`;
+                }
+            }
+        }
+    },
+
+    async updateKPIs() {
+        const data = await api('/api/upstox/paper/portfolio');
+        document.getElementById('upstoxCash').textContent = `₹${data.cash.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+        document.getElementById('upstoxMtm').textContent = `₹${data.mtm.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+        document.getElementById('upstoxMtm').className = `kpi-value ${data.mtm >= 0 ? 'positive' : 'negative'}`;
+        document.getElementById('upstoxOpenPos').textContent = data.positions.length;
+        document.getElementById('upstoxRealized').textContent = `₹${data.realized_pnl.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+    },
+
+    async loadORB() {
+        const data = await api('/api/upstox/scanner/orb');
+        const container = document.getElementById('upstoxOrbResults');
+        if (!data.breakouts || data.breakouts.length === 0) {
+            container.innerHTML = '<p class="placeholder">No ORB breakouts detected</p>';
+            return;
+        }
+
+        container.innerHTML = data.breakouts.map(b => `
+            <div class="orb-card">
+                <div class="orb-card-header">
+                    <span class="orb-symbol">${b.symbol}</span>
+                    <span class="orb-status-badge ${b.direction === 'UP' ? 'breakout-up' : 'breakout-down'}">
+                        ${b.direction === 'UP' ? 'Bullish Breakout' : 'Bearish Breakout'}
+                    </span>
+                </div>
+                <div class="orb-details">
+                    <div class="result-row"><span>Range High:</span> <span>₹${b.range_high}</span></div>
+                    <div class="result-row"><span>Range Low:</span> <span>₹${b.range_low}</span></div>
+                    <div class="result-row"><span>LTP:</span> <span class="positive">₹${b.last_price}</span></div>
+                </div>
+            </div>
+        `).join('');
+    },
+
+    async loadSignals() {
+        const data = await api('/api/upstox/scanner/signals');
+        const container = document.getElementById('upstoxSignalsBoard');
+        if (!data.signals || data.signals.length === 0) {
+            container.innerHTML = '<p class="placeholder">No high-probability signals found</p>';
+            return;
+        }
+
+        container.innerHTML = data.signals.map(s => `
+            <div class="card" style="margin-bottom: 10px; border-left: 4px solid var(--green);">
+                <div class="card-header">
+                    <strong>${s.symbol}</strong>
+                    <span class="badge positive">BUY SIGNAL</span>
+                </div>
+                <div class="result-row"><span>Confluence:</span> <span>${s.confluence_score}/10</span></div>
+                <div class="result-row"><span>Target:</span> <span class="positive">₹${s.target}</span></div>
+                <div class="result-row"><span>Stop Loss:</span> <span class="negative">₹${s.stop_loss}</span></div>
+            </div>
+        `).join('');
+    },
+
+    async updatePaperPortfolio() {
+        const data = await api('/api/upstox/paper/portfolio');
+        const tbody = document.querySelector('#paperPositionsTable tbody');
+        if (!data.positions || data.positions.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="placeholder">No open positions</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = data.positions.map(p => `
+            <tr>
+                <td><strong>${p.symbol}</strong></td>
+                <td>${p.quantity}</td>
+                <td>₹${p.entry_price.toFixed(2)}</td>
+                <td class="ltp-cell" data-symbol="${p.symbol}">₹${p.last_price.toFixed(2)}</td>
+                <td class="pnl-cell ${p.mtm >= 0 ? 'positive' : 'negative'}">₹${p.mtm.toFixed(2)}</td>
+                <td><button class="btn-danger" onclick="squareOffPosition('${p.position_id}')">Square Off</button></td>
+            </tr>
+        `).join('');
+    },
+
+    async loadScannerMatrix() {
+        const data = await api('/api/upstox/quotes');
+        const tbody = document.querySelector('#upstoxScannerMatrix tbody');
+        if (!data.quotes || Object.keys(data.quotes).length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="placeholder">No quotes available</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = Object.entries(data.quotes).map(([sym, q]) => `
+            <tr data-symbol="${sym}">
+                <td><strong>${sym}</strong></td>
+                <td class="ltp-cell">₹${(q.last_price || q.currentPrice || 0).toFixed(2)}</td>
+                <td class="chg-cell ${q.change_percent >= 0 ? 'positive' : 'negative'}">
+                    ${q.change_percent > 0 ? '+' : ''}${ (q.change_percent || 0).toFixed(2)}%
+                </td>
+                <td class="vwap-cell">${(q.vwap || 0).toFixed(2)}</td>
+                <td class="vol-cell">${q.volume || 0}</td>
+                <td><span class="badge positive">Live</span></td>
+            </tr>
+        `).join('');
+    },
+
+    playChime(type) {
+        if (!this.audioCtx) this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = this.audioCtx.createOscillator();
+        const gain = this.audioCtx.createGain();
+
+        osc.connect(gain);
+        gain.connect(this.audioCtx.destination);
+
+        if (type === 'breakout') {
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(880, this.audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(440, this.audioCtx.currentTime + 0.2);
+        } else {
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(220, this.audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(110, this.audioCtx.currentTime + 0.3);
+        }
+
+        gain.gain.setValueAtTime(0.1, this.audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.audioCtx.currentTime + 0.3);
+
+        osc.start();
+        osc.stop(this.audioCtx.currentTime + 0.3);
+    }
+};
+
+async function executePaperOrder() {
+    const symbol = document.getElementById('paperSymbol').value.toUpperCase();
+    const quantity = parseInt(document.getElementById('paperQty').value);
+    const stop_loss = parseFloat(document.getElementById('paperSL').value);
+    const target = parseFloat(document.getElementById('paperTarget').value);
+
+    if (!symbol || !quantity || !stop_loss || !target) return showToast('Fill all order details', 'warning');
+
+    showLoading();
+    try {
+        const res = await api('/api/upstox/paper/order', 'POST', {
+            symbol, quantity, stop_loss, target
+        });
+        showToast(`Buy Order Executed for ${symbol}`, 'success');
+        await UpstoxDesk.updateKPIs();
+        await UpstoxDesk.updatePaperPortfolio();
+    } catch (e) {
+        showToast(e.detail || 'Order failed', 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+async function squareOffPosition(positionId) {
+    if (!confirm('Are you sure you want to square off this position?')) return;
+
+    showLoading();
+    try {
+        await api(`/api/upstox/paper/close/${positionId}`, 'POST', { reason: 'MANUAL' });
+        showToast('Position Squared Off', 'success');
+        await UpstoxDesk.updateKPIs();
+        await UpstoxDesk.updatePaperPortfolio();
+    } catch (e) {
+        showToast(e.detail || 'Close failed', 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+async function runUpstoxBacktest() {
+    const symbol = document.getElementById('btSymbol').value.toUpperCase();
+    const interval = document.getElementById('btInterval').value;
+    if (!symbol) return showToast('Enter symbol', 'warning');
+
+    showLoading();
+    try {
+        const res = await api('/api/upstox/backtest', 'POST', { symbol, interval });
+        const container = document.getElementById('btResults');
+
+        if (res.trades && res.trades.length > 0) {
+            container.innerHTML = `
+                <div class="card">
+                    <div class="card-header">
+                        <strong>Performance:</strong>
+                        <span class="positive">Profit: ₹${res.total_pnl.toFixed(2)}</span> |
+                        <span>Win Rate: ${res.win_rate}%</span>
+                    </div>
+                    <table class="mt-2">
+                        <thead><tr><th>Entry</th><th>Exit</th><th>P&L</th></tr></thead>
+                        <tbody>
+                            ${res.trades.map(t => `
+                                <tr>
+                                    <td>${t.entry_time} @ ${t.entry_price}</td>
+                                    <td>${t.exit_time} @ ${t.exit_price}</td>
+                                    <td class="${t.pnl >= 0 ? 'positive' : 'negative'}">₹${t.pnl.toFixed(2)}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        } else {
+            container.innerHTML = '<p class="placeholder">No trades found for this strategy</p>';
+        }
+    } catch (e) {
+        showToast('Backtest failed', 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+async function openUpstoxDepth(symbol) {
+    const modal = document.getElementById('upstoxDepthModal');
+    document.getElementById('depthModalSymbol').textContent = `Market Depth: ${symbol}`;
+    modal.style.display = 'flex';
+
+    const data = await api(`/api/upstox/quote/${symbol}`);
+    const bidsContainer = document.getElementById('depthModalBids');
+    const asksContainer = document.getElementById('depthModalAsks');
+
+    bidsContainer.innerHTML = (data.bids || []).slice(0, 5).map(b => `
+        <div class="depth-row bid-row">
+            <span class="depth-price">₹${b.price}</span>
+            <span class="depth-qty">${b.quantity}</span>
+            <span class="depth-orders">${b.orders}</span>
+        </div>
+    `).join('');
+
+    asksContainer.innerHTML = (data.asks || []).slice(0, 5).map(a => `
+        <div class="depth-row ask-row">
+            <span class="depth-price">₹${a.price}</span>
+            <span class="depth-qty">${a.quantity}</span>
+            <span class="depth-orders">${a.orders}</span>
+        </div>
+    `).join('');
+
+    document.getElementById('depthModalLtp').textContent = `₹${data.last_price}`;
+    document.getElementById('depthModalSpread').textContent = `₹${data.spread}`;
+}
+
+function closeUpstoxDepthModal() {
+    document.getElementById('upstoxDepthModal').style.display = 'none';
+}
+
+// Initialize Upstox Desk when tab is shown
+function initUpstoxDesk() {
+    UpstoxDesk.init();
+    UpstoxDesk.loadScannerMatrix();
+}
+
+// Modify showTab to include Upstox Desk init
+const originalShowTab = window.showTab;
+window.showTab = function(tabId) {
+    originalShowTab(tabId);
+    if (tabId === 'upstox-intraday') {
+        initUpstoxDesk();
+    }
+};
+

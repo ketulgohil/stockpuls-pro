@@ -9,7 +9,7 @@ from api import (
     stocks, screener, signals, portfolio, sector, tools,
     news, backtest, market, compare, patterns,
     correlation, breadth, fundamentals, analysis, alerts, export, ai, gemini, advanced, more, features, gold, analytics,
-    mutual_funds, currency, block_deals, quarterly_results, screener_strategies, downstox, sentinel
+    mutual_funds, currency, block_deals, quarterly_results, screener_strategies, downstox, sentinel, upstox_trading
 )
 import inngest.fast_api
 from core.workflows.inngest_client import inngest_client
@@ -64,6 +64,7 @@ app.include_router(quarterly_results.router)
 app.include_router(screener_strategies.router)
 app.include_router(downstox.router)
 app.include_router(sentinel.router)
+app.include_router(upstox_trading.router)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -224,39 +225,28 @@ async def get_option_chain():
 
 @app.get("/api/market/depth/{symbol}")
 async def get_market_depth(symbol: str):
-    """Get market depth (order book simulation) for a stock"""
+    """Get market depth using real Upstox order book with fallback to simulation"""
+    from core.upstox.client import UpstoxClient
+    try:
+        client = UpstoxClient()
+        depth = await client.get_market_depth(symbol)
+        if depth and not depth.get("error") and (depth.get("buy") or depth.get("sell")):
+            return depth
+    except Exception as e:
+        print(f"Upstox depth fetch error: {e}")
+
+    # Fallback to simulation if Upstox fails or is not configured
     import random as _random
     try:
         ticker = yf.Ticker(f"{symbol}.NS")
         current_price = ticker.fast_info.get("lastPrice", 0)
-
         if not current_price:
-            return {"error": "Could not fetch price"}
-
-        spread = current_price * 0.001  # 0.1% spread
-
-        bids = []
-        asks = []
-
-        for i in range(5):
-            bid_price = current_price - spread * (i + 1)
-            ask_price = current_price + spread * (i + 1)
-
-            bids.append({
-                "price": round(bid_price, 2),
-                "quantity": _random.randint(100, 5000) * (5 - i),
-                "orders": _random.randint(10, 200)
-            })
-
-            asks.append({
-                "price": round(ask_price, 2),
-                "quantity": _random.randint(100, 5000) * (5 - i),
-                "orders": _random.randint(10, 200)
-            })
-
+            return {"error": "Could not fetch price for simulation"}
+        spread = current_price * 0.001
+        bids = [{"price": round(current_price - spread * (i + 1), 2), "quantity": _random.randint(100, 5000) * (5 - i), "orders": _random.randint(10, 200)} for i in range(5)]
+        asks = [{"price": round(current_price + spread * (i + 1), 2), "quantity": _random.randint(100, 5000) * (5 - i), "orders": _random.randint(10, 200)} for i in range(5)]
         total_bid_qty = sum(b["quantity"] for b in bids)
         total_ask_qty = sum(a["quantity"] for a in asks)
-
         return {
             "symbol": symbol,
             "currentPrice": round(current_price, 2),
@@ -269,7 +259,6 @@ async def get_market_depth(symbol: str):
             "spreadPercent": round((spread / current_price) * 100, 3),
             "timestamp": datetime.now().isoformat()
         }
-
     except Exception as e:
         return {"symbol": symbol, "error": str(e)}
 

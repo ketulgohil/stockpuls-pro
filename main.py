@@ -11,8 +11,12 @@ from api import (
     correlation, breadth, fundamentals, analysis, alerts, export, ai, gemini, advanced, more, features, gold, analytics,
     mutual_funds, currency, block_deals, quarterly_results, screener_strategies, downstox, sentinel
 )
-from core.sentinel.engine import sentinel_engine
-from core.sentinel.dispatcher import dispatcher
+import inngest.fast_api
+from core.workflows.inngest_client import inngest_client
+from core.workflows.functions import inngest_functions
+import inngest.fast_api
+from core.workflows.inngest_client import inngest_client
+from core.workflows.functions import inngest_functions
 
 app = FastAPI(
     title="Indian Stock Market Analysis Platform",
@@ -62,6 +66,8 @@ app.include_router(downstox.router)
 app.include_router(sentinel.router)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+inngest.fast_api.serve(app, inngest_client, inngest_functions)
 
 
 # ===== WebSocket Live Price Streaming =====

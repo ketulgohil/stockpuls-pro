@@ -1,51 +1,54 @@
-import yfinance as yf
 import pandas as pd
-from datetime import datetime, timedelta
 from typing import Optional
-from core.data_fetcher import NIFTY50_SYMBOLS
+from core import upstox_data
+from core.data_fetcher import NIFTY50_SYMBOLS, get_stock_data
+from core.indicators import add_all_indicators
 
 
 def get_market_breadth() -> dict:
     symbols = NIFTY50_SYMBOLS
-    
+
     advancing = 0
     declining = 0
     unchanged = 0
     above_sma20 = 0
     above_sma50 = 0
     total = 0
-    
+
+    quotes = upstox_data.get_quotes(symbols) or {}
+
     for symbol in symbols:
         try:
-            ticker = yf.Ticker(symbol)
-            hist = ticker.history(period="5d")
-            
-            if len(hist) >= 2:
-                total += 1
-                current = hist["Close"].iloc[-1]
-                prev = hist["Close"].iloc[-2]
-                
-                if current > prev:
-                    advancing += 1
-                elif current < prev:
-                    declining += 1
-                else:
-                    unchanged += 1
-                
-                if len(hist) >= 20:
-                    sma20 = hist["Close"].rolling(20).mean().iloc[-1]
-                    if current > sma20:
-                        above_sma20 += 1
-                
-                if len(hist) >= 50:
-                    sma50 = hist["Close"].rolling(50).mean().iloc[-1]
-                    if current > sma50:
-                        above_sma50 += 1
-        except:
+            q = quotes.get(symbol)
+            if not q:
+                continue
+
+            total += 1
+            change_pct = float(q.get("changePercent", 0) or 0)
+
+            if change_pct > 0:
+                advancing += 1
+            elif change_pct < 0:
+                declining += 1
+            else:
+                unchanged += 1
+
+            df = get_stock_data(symbol, period="1y", interval="1d")
+            if df is None or df.empty:
+                continue
+            df = add_all_indicators(df)
+            latest = df.iloc[-1]
+            current = float(latest["Close"])
+
+            if pd.notna(latest.get("SMA_20")) and current > float(latest["SMA_20"]):
+                above_sma20 += 1
+            if pd.notna(latest.get("SMA_50")) and current > float(latest["SMA_50"]):
+                above_sma50 += 1
+        except Exception:
             continue
-    
+
     ad_ratio = advancing / max(declining, 1)
-    
+
     return {
         "total": total,
         "advancing": advancing,

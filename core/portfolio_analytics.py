@@ -1,4 +1,3 @@
-import yfinance as yf
 from typing import Optional
 from core.portfolio import get_portfolio
 from core.data_fetcher import get_stock_info, SECTOR_MAP

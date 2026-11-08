@@ -1,18 +1,18 @@
 from typing import List, Dict, Any
-import yfinance as yf
 from datetime import datetime
+from core import upstox_data
 from core.sentinel.types import DeskFinding
 from core.ai_analysis import analyze_sentiment
+
 
 class NewsDesk:
     @staticmethod
     def scan(symbol: str) -> List[DeskFinding]:
         findings = []
         try:
-            ticker = yf.Ticker(symbol)
-            news = ticker.news
+            news = upstox_data.get_instrument_news(symbol, limit=5) or []
             if news:
-                return NewsDesk.scan_text(symbol, news[:5])
+                return NewsDesk.scan_text(symbol, news)
         except Exception:
             pass
         return findings

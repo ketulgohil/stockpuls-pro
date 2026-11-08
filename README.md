@@ -42,7 +42,7 @@ A full-featured **Indian Stock Market Analytics Platform** built with FastAPI, f
 - **Backtesting** — Test RSI, MACD, SMA strategies on historical data
 - **Correlation Matrix** — Cross-stock correlation analysis
 - **Market Breadth** — A/D ratio, SMA breadth indicators
-- **Global Markets** — US, Asian, European indices + commodities
+- **Global Markets** — US, Asian, European indices + commodities *(temporarily unavailable — Upstox does not supply global indices/FX/spot metals)*
 - **IPO Dashboard** — Upcoming IPOs with GMP data
 - **Financial Calculators** — SIP, Tax, Position Size, Fibonacci, Gold Value
 
@@ -51,7 +51,7 @@ A full-featured **Indian Stock Market Analytics Platform** built with FastAPI, f
 - **FII/DII Activity** — Institutional money flow
 - **Block Deals** — Bulk/block deal tracking
 - **Earnings Calendar** — Quarterly results tracker
-- **Mutual Funds** — Top Indian mutual funds with returns
+- **Mutual Funds** — Top Indian mutual funds with returns (Downstox AMFI data)
 
 ---
 
@@ -114,7 +114,8 @@ stockpuls-pro/
 │   ├── gemini.py          # Gemini AI integration
 │   └── ...
 ├── core/                   # Business logic
-│   ├── data_fetcher.py    # Yahoo Finance data fetching
+│   ├── data_fetcher.py    # Upstox/Downstox data access layer
+│   ├── upstox_data.py     # Upstox-backed market data layer
 │   ├── indicators.py      # Technical indicator calculations
 │   ├── cache.py           # In-memory caching
 │   ├── signals.py         # Signal generation logic
@@ -202,7 +203,7 @@ stockpuls-pro/
 | **Backend** | Python 3.11, FastAPI, Uvicorn |
 | **Frontend** | Vanilla JavaScript, HTML5, CSS3 |
 | **Charts** | TradingView Lightweight Charts v4.1.3 |
-| **Data Source** | Yahoo Finance (yfinance), Downstox API |
+| **Data Source** | Upstox API (quotes, candles, depth, options, news), Downstox API (fundamentals, market news, mutual funds, FII/DII) |
 | **Database** | SQLite |
 | **AI** | Google Gemini API |
 | **Caching** | In-memory (30s - 10min TTL) |
@@ -215,7 +216,6 @@ stockpuls-pro/
 ```
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
-yfinance>=0.2.31
 pandas>=2.1.0
 numpy>=1.25.0
 aiofiles>=23.2.0
@@ -257,9 +257,10 @@ requests>=2.31.0
 ## ⚠️ Important Notes
 
 - **Market Hours**: Indian market operates 9:15 AM - 3:30 PM IST (Mon-Fri)
-- **Data Delay**: Yahoo Finance data may have 15-min delay during market hours
-- **Rate Limiting**: yfinance may rate-limit frequent requests; caching helps
+- **Data Delay**: Upstox provides real-time quotes during market hours
+- **Caching**: In-memory caching (30s - 10min TTL) helps reduce API calls
 - **Not Financial Advice**: This tool is for educational purposes only
+- **Disabled modules**: Global Markets, Currency, and Gold & Silver tabs are shown with an unavailability notice because Upstox does not supply global indices, FX, or spot metals data.
 
 ---
 

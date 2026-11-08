@@ -1,5 +1,5 @@
-import yfinance as yf
 from typing import Optional
+from core import upstox_data
 from core.data_fetcher import get_stock_data, ALL_SYMBOLS
 from core.indicators import add_all_indicators
 import re
@@ -22,23 +22,23 @@ NEGATIVE_WORDS = [
 
 def analyze_sentiment(text: str) -> dict:
     text_lower = text.lower()
-    
+
     pos_count = sum(1 for w in POSITIVE_WORDS if w in text_lower)
     neg_count = sum(1 for w in NEGATIVE_WORDS if w in text_lower)
-    
+
     total = pos_count + neg_count
     if total == 0:
         score = 0.5
     else:
         score = pos_count / total
-    
+
     if score > 0.6:
         label = "BULLISH"
     elif score < 0.4:
         label = "BEARISH"
     else:
         label = "NEUTRAL"
-    
+
     return {
         "score": round(score, 2),
         "label": label,
@@ -47,37 +47,46 @@ def analyze_sentiment(text: str) -> dict:
     }
 
 
+def _map_upstox_news(item: dict) -> dict:
+    return {
+        "title": item.get("title", ""),
+        "publisher": item.get("publisher", ""),
+        "link": item.get("link", ""),
+        "published": item.get("publishedAt", ""),
+        "summary": item.get("summary", ""),
+    }
+
+
 def get_news_sentiment_analysis(symbol: str) -> dict:
     try:
-        ticker = yf.Ticker(symbol)
-        news = ticker.news
-        
-        if not news:
+        news_items = [_map_upstox_news(n) for n in (upstox_data.get_instrument_news(symbol, limit=15) or [])]
+
+        if not news_items:
             return {"symbol": symbol, "news": [], "sentiment": None, "recommendation": "NO_DATA"}
-        
+
         analyzed_news = []
         all_sentiments = []
-        
-        for item in news[:15]:
+
+        for item in news_items[:15]:
             title = item.get("title", "")
             publisher = item.get("publisher", "")
             summary = item.get("summary", "")
-            
+
             combined_text = f"{title} {summary}"
             sentiment = analyze_sentiment(combined_text)
-            
+
             analyzed_news.append({
                 "title": title,
                 "publisher": publisher,
                 "link": item.get("link", ""),
-                "published": item.get("providerPublishTime", ""),
+                "published": item.get("published", ""),
                 "sentiment": sentiment["label"],
                 "sentiment_score": sentiment["score"]
             })
             all_sentiments.append(sentiment["score"])
-        
+
         avg_score = sum(all_sentiments) / len(all_sentiments) if all_sentiments else 0.5
-        
+
         if avg_score > 0.65:
             recommendation = "BUY"
             reasoning = "Strong positive news sentiment"
@@ -93,7 +102,7 @@ def get_news_sentiment_analysis(symbol: str) -> dict:
         else:
             recommendation = "HOLD"
             reasoning = "Neutral news sentiment"
-        
+
         return {
             "symbol": symbol,
             "name": symbol.replace(".NS", ""),
@@ -116,37 +125,36 @@ def get_news_sentiment_analysis(symbol: str) -> dict:
 def find_trending_stocks_news() -> list[dict]:
     from core.data_fetcher import ALL_SYMBOLS
     hot_stocks = ALL_SYMBOLS[:30]
-    
+
     results = []
-    
+
     for symbol in hot_stocks:
         try:
-            ticker = yf.Ticker(symbol)
-            news = ticker.news
-            
-            if news and len(news) > 0:
+            news_items = upstox_data.get_instrument_news(symbol, limit=5) or []
+
+            if news_items:
                 sentiment_scores = []
                 headlines = []
-                
-                for item in news[:5]:
+
+                for item in news_items[:5]:
                     title = item.get("title", "")
                     headlines.append(title)
                     sentiment = analyze_sentiment(title)
                     sentiment_scores.append(sentiment["score"])
-                
+
                 avg = sum(sentiment_scores) / len(sentiment_scores) if sentiment_scores else 0.5
-                
+
                 results.append({
                     "symbol": symbol,
                     "name": symbol.replace(".NS", ""),
-                    "news_count": len(news),
+                    "news_count": len(news_items),
                     "headlines": headlines[:3],
                     "sentiment_score": round(avg, 2),
                     "sentiment": "BULLISH" if avg > 0.6 else "BEARISH" if avg < 0.4 else "NEUTRAL"
                 })
-        except:
+        except Exception:
             continue
-    
+
     results.sort(key=lambda x: x["news_count"], reverse=True)
     return results[:15]
 
@@ -154,26 +162,25 @@ def find_trending_stocks_news() -> list[dict]:
 def get_market_mood() -> dict:
     indices_data = []
     try:
+        indices = upstox_data.get_market_indices(["^NSEI", "^BSESN"]) or {}
         for symbol in ["^NSEI", "^BSESN"]:
-            ticker = yf.Ticker(symbol)
-            hist = ticker.history(period="5d")
-            if len(hist) >= 2:
-                change = ((hist["Close"].iloc[-1] - hist["Close"].iloc[-2]) / hist["Close"].iloc[-2]) * 100
-                indices_data.append({"symbol": symbol, "change": round(float(change), 2)})
-    except:
+            q = indices.get(symbol)
+            if q:
+                indices_data.append({"symbol": symbol, "change": round(float(q.get("changePercent", 0) or 0), 2)})
+    except Exception:
         pass
-    
+
     trending = find_trending_stocks_news()[:10]
     bullish = sum(1 for s in trending if s["sentiment"] == "BULLISH")
     bearish = sum(1 for s in trending if s["sentiment"] == "BEARISH")
-    
+
     if bullish > bearish * 1.5:
         mood = "BULLISH"
     elif bearish > bullish * 1.5:
         mood = "BEARISH"
     else:
         mood = "NEUTRAL"
-    
+
     return {
         "mood": mood,
         "indices": indices_data,
@@ -186,7 +193,7 @@ def get_market_mood() -> dict:
 def ai_stock_analysis(symbol: str) -> dict:
     try:
         sentiment_data = get_news_sentiment_analysis(symbol)
-        
+
         df = get_stock_data(symbol, period="3mo")
         technical = {}
         if df is not None and not df.empty:
@@ -200,7 +207,7 @@ def ai_stock_analysis(symbol: str) -> dict:
                 "sma50": round(float(latest["SMA_50"]), 2) if not latest.get("SMA_50") != latest.get("SMA_50") else None,
                 "trend": "BULLISH" if latest.get("SMA_20", 0) > latest.get("SMA_50", 0) else "BEARISH"
             }
-        
+
         news_score = sentiment_data.get("sentiment", {}).get("average_score", 0.5) if sentiment_data.get("sentiment") else 0.5
         tech_score = 0.5
         if technical:
@@ -213,9 +220,9 @@ def ai_stock_analysis(symbol: str) -> dict:
                 tech_score = 0.6
             else:
                 tech_score = 0.4
-        
+
         combined_score = (news_score * 0.4 + tech_score * 0.6)
-        
+
         if combined_score > 0.65:
             recommendation = "STRONG BUY"
         elif combined_score > 0.55:
@@ -226,7 +233,7 @@ def ai_stock_analysis(symbol: str) -> dict:
             recommendation = "SELL"
         else:
             recommendation = "HOLD"
-        
+
         return {
             "symbol": symbol,
             "name": symbol.replace(".NS", ""),

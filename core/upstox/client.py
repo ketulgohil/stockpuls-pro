@@ -5,6 +5,7 @@ from typing import List, Dict, Optional, Any
 from pathlib import Path
 
 INSTRUMENTS_FILE = Path(__file__).resolve().parent.parent.parent / "data" / "upstox_instruments.json"
+FULL_INSTRUMENTS_FILE = Path(__file__).resolve().parent.parent.parent / "data" / "upstox_instruments_full.json"
 
 
 class UpstoxClient:
@@ -26,13 +27,23 @@ class UpstoxClient:
         return bool(self.token and len(self.token.strip()) > 0)
 
     def _load_instruments(self):
-        """Loads pre-bundled instrument mappings from data/upstox_instruments.json."""
+        """Loads bundled mappings plus the full NSE equity master when present."""
         if INSTRUMENTS_FILE.exists():
             try:
                 with open(INSTRUMENTS_FILE, "r") as f:
                     self._instruments_cache = json.load(f)
             except Exception:
                 self._instruments_cache = {}
+
+        if FULL_INSTRUMENTS_FILE.exists():
+            try:
+                with open(FULL_INSTRUMENTS_FILE, "r") as f:
+                    full = json.load(f)
+                for sym, entry in full.items():
+                    self._instruments_cache.setdefault(sym, entry)
+                    self._instruments_cache.setdefault(sym.upper(), entry)
+            except Exception:
+                pass
 
     def resolve_instrument_key(self, symbol: str) -> str:
         """
@@ -69,11 +80,17 @@ class UpstoxClient:
         # Standard indices fallbacks
         if clean_sym_upper in ("^NSEI", "NIFTY", "NIFTY 50", "NIFTY50"):
             return "NSE_INDEX|Nifty 50"
+        if clean_sym_upper in ("^BSESN", "SENSEX"):
+            return "BSE_INDEX|SENSEX"
+        if clean_sym_upper in ("^INDIAVIX", "INDIA VIX", "INDIAVIX"):
+            return "NSE_INDEX|India VIX"
+        if clean_sym_upper in ("^NSEMDCP50", "^NSEMDCP100", "NIFTY MIDCAP 50", "NIFTY MIDCAP 100"):
+            return "NSE_INDEX|Nifty Midcap 50"
         if clean_sym_upper in ("^NSEBANK", "BANKNIFTY", "BANK NIFTY", "NIFTY BANK"):
             return "NSE_INDEX|Nifty Bank"
         if clean_sym_upper in ("NIFTY 500", "NIFTY500"):
             return "NSE_INDEX|Nifty 500"
-        if clean_sym_upper in ("NIFTY IT", "NIFTYIT"):
+        if clean_sym_upper in ("^CNXIT", "NIFTY IT", "NIFTYIT"):
             return "NSE_INDEX|Nifty IT"
         if clean_sym_upper in ("NIFTY AUTO", "NIFTYAUTO"):
             return "NSE_INDEX|Nifty Auto"
@@ -159,8 +176,12 @@ class UpstoxClient:
             last_price = float(item.get("last_price", 0.0) or 0.0)
             vwap = float(item.get("average_price", 0.0) or item.get("vwap", 0.0) or last_price)
             net_change = float(item.get("net_change", 0.0) or 0.0)
+            # Upstox `ohlc.close` is the latest traded close; derive the
+            # previous close from net_change so change % is correct.
             close = float(ohlc.get("close", 0.0) or last_price)
-            change_pct = round(((last_price - close) / close * 100), 2) if close > 0 else 0.0
+            if net_change:
+                close = last_price - net_change
+            change_pct = round((net_change / close * 100), 2) if close > 0 else 0.0
 
             buy_depth = depth.get("buy", [])
             sell_depth = depth.get("sell", [])
@@ -195,7 +216,13 @@ class UpstoxClient:
 
         return quotes
 
-    async def get_candles(self, symbol: str, interval: str = "5minute", to_date: Optional[str] = None) -> List[dict]:
+    async def get_candles(
+        self,
+        symbol: str,
+        interval: str = "5minute",
+        to_date: Optional[str] = None,
+        from_date: Optional[str] = None,
+    ) -> List[dict]:
         """
         Retrieves historical or intraday candlesticks.
         Interval options: '1minute', '5minute', '15minute', '30minute', 'day' (or '1m', '5m', '15m', '30m', '1d').
@@ -215,7 +242,9 @@ class UpstoxClient:
         }
         normalized_interval = interval_map.get(interval, interval)
 
-        if to_date:
+        if to_date and from_date:
+            url = f"{self.BASE_URL}/historical-candle/{instrument_key}/{normalized_interval}/{to_date}/{from_date}"
+        elif to_date:
             url = f"{self.BASE_URL}/historical-candle/{instrument_key}/{normalized_interval}/{to_date}"
         else:
             url = f"{self.BASE_URL}/historical-candle/intraday/{instrument_key}/{normalized_interval}"

@@ -3698,3 +3698,21 @@ body { --chart-bg: var(--bg-card); }
     animation: fadeIn 0.3s ease;
 }
 
+/* ===== UNAVAILABLE MODULE NOTICE ===== */
+.notice-unavailable {
+    background: rgba(245, 158, 11, 0.10);
+    border: 1px solid rgba(245, 158, 11, 0.45);
+    color: var(--text);
+    padding: 14px 18px;
+    border-radius: var(--radius);
+    margin: 14px 0;
+    font-size: 14px;
+    line-height: 1.5;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.notice-unavailable strong {
+    color: #f59e0b;
+}
+

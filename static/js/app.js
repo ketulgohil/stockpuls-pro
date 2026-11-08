@@ -2078,8 +2078,8 @@ async function loadGoldPrices() {
     
     const data = await api('/api/gold/prices');
     
-    if (data.error) {
-        container.innerHTML = `<p class="placeholder">${data.error}</p>`;
+    if (data.error || data.available === false) {
+        container.innerHTML = `<p class="placeholder">${data.error || 'Spot gold and silver prices are not available with the current data provider.'}</p>`;
         return;
     }
     

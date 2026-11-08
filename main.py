@@ -3,7 +3,6 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import json
 import asyncio
-import yfinance as yf
 from datetime import datetime
 from api import (
     stocks, screener, signals, portfolio, sector, tools,
@@ -14,9 +13,10 @@ from api import (
 import inngest.fast_api
 from core.workflows.inngest_client import inngest_client
 from core.workflows.functions import inngest_functions
-import inngest.fast_api
-from core.workflows.inngest_client import inngest_client
-from core.workflows.functions import inngest_functions
+from core.sentinel.dispatcher import dispatcher
+from core.sentinel.engine import sentinel_engine
+from core import upstox_data
+from core.data_fetcher import get_stock_data, get_live_price
 
 app = FastAPI(
     title="Indian Stock Market Analysis Platform",
@@ -114,24 +114,15 @@ async def websocket_live_prices(websocket: WebSocket):
         # Start sending updates
         while True:
             try:
-                prices = {}
-                for symbol in symbols:
-                    ticker = yf.Ticker(symbol)
-                    try:
-                        info = ticker.fast_info
-                        last_price = info.get("lastPrice", 0)
-                        prev_close = info.get("previousClose", 0)
-                        change = round(last_price - prev_close, 2)
-                        change_pct = round(
-                            ((last_price - prev_close) / prev_close) * 100, 2
-                        ) if prev_close else 0
-                        prices[symbol] = {
-                            "price": round(last_price, 2),
-                            "change": change,
-                            "changePercent": change_pct
-                        }
-                    except Exception:
-                        pass
+                prices_raw = upstox_data.get_quotes(symbols)
+                prices = {
+                    sym: {
+                        "price": q["price"],
+                        "change": q["change"],
+                        "changePercent": q["changePercent"],
+                    }
+                    for sym, q in prices_raw.items()
+                }
 
                 await websocket.send_text(json.dumps({
                     "prices": prices,
@@ -163,90 +154,40 @@ async def websocket_sentinel(websocket: WebSocket):
 
 
 @app.get("/api/options/chain")
-async def get_option_chain():
+async def get_option_chain(expiry: str = None):
     """Get option chain data for NIFTY/BANKNIFTY"""
     try:
-        nifty = yf.Ticker("^NSEI")
-
-        expiries = nifty.options
-        if not expiries:
-            return {"error": "No options data available"}
-
-        nearest_expiry = expiries[0]
-        option_chain = nifty.option_chain(nearest_expiry)
-
-        calls = option_chain.calls
-        puts = option_chain.puts
-
-        calls_data = []
-        for _, row in calls.iterrows():
-            calls_data.append({
-                "strike": float(row.get("strike", 0)),
-                "lastPrice": float(row.get("lastPrice", 0)),
-                "change": float(row.get("change", 0)),
-                "volume": int(row.get("volume", 0) or 0),
-                "openInterest": int(row.get("openInterest", 0) or 0),
-                "impliedVolatility": float(row.get("impliedVolatility", 0) or 0)
-            })
-
-        puts_data = []
-        for _, row in puts.iterrows():
-            puts_data.append({
-                "strike": float(row.get("strike", 0)),
-                "lastPrice": float(row.get("lastPrice", 0)),
-                "change": float(row.get("change", 0)),
-                "volume": int(row.get("volume", 0) or 0),
-                "openInterest": int(row.get("openInterest", 0) or 0),
-                "impliedVolatility": float(row.get("impliedVolatility", 0) or 0)
-            })
-
-        total_call_oi = sum(c.get("openInterest", 0) for c in calls_data)
-        total_put_oi = sum(p.get("openInterest", 0) for p in puts_data)
-        pcr = round(total_put_oi / total_call_oi, 2) if total_call_oi > 0 else 0
-
-        current_price = float(nifty.fast_info.get("lastPrice", 0))
-
-        return {
-            "underlying": "NIFTY",
-            "currentPrice": current_price,
-            "expiry": nearest_expiry,
-            "availableExpiries": list(expiries),
-            "calls": calls_data,
-            "puts": puts_data,
-            "putCallRatio": pcr,
-            "totalCallOI": total_call_oi,
-            "totalPutOI": total_put_oi,
-            "timestamp": datetime.now().isoformat()
-        }
-
+        return upstox_data.get_option_chain("^NSEI", expiry=expiry)
     except Exception as e:
         return {"error": str(e)}
 
 
 @app.get("/api/market/depth/{symbol}")
 async def get_market_depth(symbol: str):
-    """Get market depth using real Upstox order book with fallback to simulation"""
-    from core.upstox.client import UpstoxClient
+    """Get real market depth from the Upstox order book"""
+    from core.upstox_data import get_client, run_async
     try:
-        client = UpstoxClient()
-        depth = await client.get_market_depth(symbol)
-        if depth and not depth.get("error") and (depth.get("buy") or depth.get("sell")):
-            return depth
-    except Exception as e:
-        print(f"Upstox depth fetch error: {e}")
+        client = get_client()
+        depth = run_async(client.get_market_depth(symbol)) or {}
+        if depth.get("error"):
+            return {"symbol": symbol, "error": depth["error"]}
 
-    # Fallback to simulation if Upstox fails or is not configured
-    import random as _random
-    try:
-        ticker = yf.Ticker(f"{symbol}.NS")
-        current_price = ticker.fast_info.get("lastPrice", 0)
-        if not current_price:
-            return {"error": "Could not fetch price for simulation"}
-        spread = current_price * 0.001
-        bids = [{"price": round(current_price - spread * (i + 1), 2), "quantity": _random.randint(100, 5000) * (5 - i), "orders": _random.randint(10, 200)} for i in range(5)]
-        asks = [{"price": round(current_price + spread * (i + 1), 2), "quantity": _random.randint(100, 5000) * (5 - i), "orders": _random.randint(10, 200)} for i in range(5)]
-        total_bid_qty = sum(b["quantity"] for b in bids)
-        total_ask_qty = sum(a["quantity"] for a in asks)
+        bids = depth.get("bids") or depth.get("buy") or []
+        asks = depth.get("asks") or depth.get("sell") or []
+        current_price = float(depth.get("currentPrice") or 0.0)
+        total_bid_qty = depth.get("totalBidQty")
+        if total_bid_qty is None:
+            total_bid_qty = sum(b.get("quantity", 0) for b in bids)
+        total_ask_qty = depth.get("totalAskQty")
+        if total_ask_qty is None:
+            total_ask_qty = sum(a.get("quantity", 0) for a in asks)
+
+        best_bid = bids[0].get("price", 0) if bids else 0
+        best_ask = asks[0].get("price", 0) if asks else 0
+        spread = depth.get("spread")
+        if spread is None:
+            spread = round(best_ask - best_bid, 2) if best_bid and best_ask else 0
+
         return {
             "symbol": symbol,
             "currentPrice": round(current_price, 2),
@@ -254,10 +195,10 @@ async def get_market_depth(symbol: str):
             "asks": asks,
             "totalBidQty": total_bid_qty,
             "totalAskQty": total_ask_qty,
-            "bidAskRatio": round(total_bid_qty / total_ask_qty, 2) if total_ask_qty > 0 else 0,
+            "bidAskRatio": depth.get("bidAskRatio", round(total_bid_qty / total_ask_qty, 2) if total_ask_qty > 0 else 0),
             "spread": round(spread, 2),
-            "spreadPercent": round((spread / current_price) * 100, 3),
-            "timestamp": datetime.now().isoformat()
+            "spreadPercent": depth.get("spreadPercent", round((spread / current_price) * 100, 3) if current_price > 0 else 0),
+            "timestamp": depth.get("timestamp") or datetime.now().isoformat()
         }
     except Exception as e:
         return {"symbol": symbol, "error": str(e)}
@@ -307,8 +248,6 @@ async def get_market_status():
 @app.get("/api/market/pulse")
 async def get_market_pulse():
     """Calculate overall market pulse/sentiment"""
-    import yfinance as yf
-
     pulse_data = {
         "score": 0,  # -100 to +100
         "label": "Neutral",
@@ -316,54 +255,52 @@ async def get_market_pulse():
     }
 
     try:
+        quotes = upstox_data.get_quotes(["^NSEI", "^NSEBANK", "^BSESN", "^INDIAVIX"])
+
         # Check NIFTY trend
-        nifty = yf.Ticker("^NSEI")
-        nifty_hist = nifty.history(period="5d")
-        if not nifty_hist.empty and len(nifty_hist) >= 2:
-            nifty_change = ((nifty_hist['Close'].iloc[-1] - nifty_hist['Close'].iloc[-2]) / nifty_hist['Close'].iloc[-2]) * 100
+        nifty = quotes.get("^NSEI")
+        if nifty:
+            nifty_change = nifty.get("changePercent", 0)
             pulse_data["indicators"].append({
                 "name": "NIFTY 50",
-                "value": round(nifty_hist['Close'].iloc[-1], 2),
+                "value": round(nifty.get("price", 0), 2),
                 "change": round(nifty_change, 2),
                 "signal": "bullish" if nifty_change > 0.2 else ("bearish" if nifty_change < -0.2 else "neutral")
             })
             pulse_data["score"] += nifty_change * 10
 
         # Check BANKNIFTY trend
-        banknifty = yf.Ticker("^NSEBANK")
-        bank_hist = banknifty.history(period="5d")
-        if not bank_hist.empty and len(bank_hist) >= 2:
-            bank_change = ((bank_hist['Close'].iloc[-1] - bank_hist['Close'].iloc[-2]) / bank_hist['Close'].iloc[-2]) * 100
+        banknifty = quotes.get("^NSEBANK")
+        if banknifty:
+            bank_change = banknifty.get("changePercent", 0)
             pulse_data["indicators"].append({
                 "name": "BANK NIFTY",
-                "value": round(bank_hist['Close'].iloc[-1], 2),
+                "value": round(banknifty.get("price", 0), 2),
                 "change": round(bank_change, 2),
                 "signal": "bullish" if bank_change > 0.3 else ("bearish" if bank_change < -0.3 else "neutral")
             })
             pulse_data["score"] += bank_change * 8
 
         # Check SENSEX trend
-        sensex = yf.Ticker("^BSESN")
-        sensex_hist = sensex.history(period="5d")
-        if not sensex_hist.empty and len(sensex_hist) >= 2:
-            sensex_change = ((sensex_hist['Close'].iloc[-1] - sensex_hist['Close'].iloc[-2]) / sensex_hist['Close'].iloc[-2]) * 100
+        sensex = quotes.get("^BSESN")
+        if sensex:
+            sensex_change = sensex.get("changePercent", 0)
             pulse_data["indicators"].append({
                 "name": "SENSEX",
-                "value": round(sensex_hist['Close'].iloc[-1], 2),
+                "value": round(sensex.get("price", 0), 2),
                 "change": round(sensex_change, 2),
                 "signal": "bullish" if sensex_change > 0.2 else ("bearish" if sensex_change < -0.2 else "neutral")
             })
             pulse_data["score"] += sensex_change * 7
 
         # Check VIX (fear index)
-        vix = yf.Ticker("^INDIAVIX")
-        vix_hist = vix.history(period="2d")
-        if not vix_hist.empty:
-            vix_value = vix_hist['Close'].iloc[-1]
+        vix = quotes.get("^INDIAVIX")
+        if vix and vix.get("price"):
+            vix_value = vix.get("price", 0)
             pulse_data["indicators"].append({
                 "name": "INDIA VIX",
                 "value": round(vix_value, 2),
-                "change": 0,
+                "change": round(vix.get("changePercent", 0), 2),
                 "signal": "bearish" if vix_value > 20 else ("bullish" if vix_value < 12 else "neutral")
             })
             # High VIX = fear = bearish
@@ -416,25 +353,32 @@ async def get_volume_alerts():
         alerts = []
         for symbol in symbols:
             try:
-                ticker = yf.Ticker(symbol)
-                hist = ticker.history(period="5d")
-                if len(hist) >= 2:
-                    today_vol = hist['Volume'].iloc[-1]
-                    avg_vol = hist['Volume'].iloc[:-1].mean()
-                    if avg_vol > 0:
-                        vol_ratio = today_vol / avg_vol
-                        if vol_ratio > 1.5:  # 1.5x average volume
-                            price = hist['Close'].iloc[-1]
-                            change = ((hist['Close'].iloc[-1] - hist['Close'].iloc[-2]) / hist['Close'].iloc[-2]) * 100
-                            alerts.append({
-                                "symbol": symbol.replace(".NS", ""),
-                                "price": round(price, 2),
-                                "change": round(change, 2),
-                                "volume": int(today_vol),
-                                "avgVolume": int(avg_vol),
-                                "volumeRatio": round(vol_ratio, 2),
-                                "signal": "BUY" if change > 0 and vol_ratio > 2 else ("SELL" if change < 0 and vol_ratio > 2 else "WATCH")
-                            })
+                hist = get_stock_data(symbol, period="1mo", interval="1d")
+                if hist is None or hist.empty or len(hist) < 2:
+                    continue
+
+                # Average volume of the previous 20 daily candles (exclude today)
+                avg_vol = hist["Volume"].iloc[:-1].tail(20).mean()
+                if not avg_vol or avg_vol <= 0:
+                    continue
+
+                live = get_live_price(symbol) or {}
+                today_vol = live.get("volume") or int(hist["Volume"].iloc[-1])
+                vol_ratio = today_vol / avg_vol
+                if vol_ratio > 1.5:  # 1.5x average volume
+                    price = live.get("price") or float(hist["Close"].iloc[-1])
+                    change = live.get("changePercent")
+                    if change is None:
+                        change = ((hist["Close"].iloc[-1] - hist["Close"].iloc[-2]) / hist["Close"].iloc[-2]) * 100
+                    alerts.append({
+                        "symbol": symbol.replace(".NS", ""),
+                        "price": round(price, 2),
+                        "change": round(change, 2),
+                        "volume": int(today_vol),
+                        "avgVolume": int(avg_vol),
+                        "volumeRatio": round(vol_ratio, 2),
+                        "signal": "BUY" if change > 0 and vol_ratio > 2 else ("SELL" if change < 0 and vol_ratio > 2 else "WATCH")
+                    })
             except Exception:
                 continue
 
@@ -462,9 +406,9 @@ async def get_portfolio_live_pnl():
             quantity = holding.get("quantity", 0)
 
             try:
-                ticker = yf.Ticker(symbol)
-                info = ticker.fast_info
-                current_price = info.get("lastPrice", buy_price)
+                quote_symbol = symbol if symbol.endswith(".NS") else f"{symbol}.NS"
+                quote = get_live_price(quote_symbol) or {}
+                current_price = quote.get("price") or buy_price
                 invested = buy_price * quantity
                 current_value = current_price * quantity
                 pnl = current_value - invested

@@ -1,8 +1,8 @@
 fastapi
 uvicorn[standard]
-yfinance
 pandas
 numpy
 aiofiles
 python-multipart
 requests
+google-genai>=1.0.0

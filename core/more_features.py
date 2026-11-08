@@ -1,9 +1,11 @@
-import yfinance as yf
 from datetime import datetime, timedelta
 from typing import Optional
 import json
 import urllib.request
 import urllib.error
+
+from core import upstox_data
+from core.data_fetcher import get_stock_info
 
 
 DOWNSTOX_IPO_URL = "https://downstox.com/api/ipo/gmp"
@@ -21,10 +23,10 @@ def get_ipo_data() -> list[dict]:
                 ipos.append({
                     "name": row.get("company", ""),
                     "symbol": row.get("norm", "").upper(),
-                    "price_band": f"₹{row['priceBand']}" if row.get("priceBand") else "TBA",
+                    "price_band": f"\u20b9{row['priceBand']}" if row.get("priceBand") else "TBA",
                     "gmp": f"+₹{row['gmp']}" if row.get("gmp") else "-",
                     "gmp_pct": f"{row['gainPct']}%" if row.get("gainPct") else "-",
-                    "est_listing": f"₹{row['estListing']}" if row.get("estListing") else "-",
+                    "est_listing": f"\u20b9{row['estListing']}" if row.get("estListing") else "-",
                     "date": row.get("date", ""),
                     "type": row.get("type", ""),
                     "status": row.get("type", ""),
@@ -38,95 +40,71 @@ def get_ipo_data() -> list[dict]:
 
 
 def get_stock_financials(symbol: str) -> dict:
+    """Fundamentals sourced from Downstox via get_stock_info."""
     try:
-        ticker = yf.Ticker(symbol)
-        info = ticker.info
-        
-        financials = {
+        info = get_stock_info(symbol)
+        if not info:
+            return {"symbol": symbol, "error": "Could not fetch financials"}
+
+        return {
             "symbol": symbol,
-            "name": symbol.replace(".NS", ""),
+            "name": info.get("name", symbol),
             "marketCap": info.get("marketCap"),
-            "enterpriseValue": info.get("enterpriseValue"),
-            "trailingPE": info.get("trailingPE"),
-            "forwardPE": info.get("forwardPE"),
-            "pegRatio": info.get("pegRatio"),
-            "priceToBook": info.get("priceToBook"),
-            "priceToSales": info.get("priceToSalesTrailing12Months"),
+            "enterpriseValue": None,
+            "trailingPE": info.get("pe"),
+            "forwardPE": None,
+            "pegRatio": None,
+            "priceToBook": info.get("pb"),
+            "priceToSales": None,
             "dividendYield": info.get("dividendYield"),
-            "profitMargins": info.get("profitMargins"),
-            "returnOnEquity": info.get("returnOnEquity"),
-            "returnOnAssets": info.get("returnOnAssets"),
-            "revenueGrowth": info.get("revenueGrowth"),
-            "earningsGrowth": info.get("earningsGrowth"),
-            "debtToEquity": info.get("debtToEquity"),
-            "currentRatio": info.get("currentRatio"),
-            "quickRatio": info.get("quickRatio"),
-            "freeCashflow": info.get("freeCashflow"),
-            "operatingCashflow": info.get("operatingCashflow"),
-            "totalRevenue": info.get("totalRevenue"),
-            "totalDebt": info.get("totalDebt"),
-            "totalCash": info.get("totalCash"),
+            "profitMargins": None,
+            "returnOnEquity": info.get("roe"),
+            "returnOnAssets": None,
+            "revenueGrowth": None,
+            "earningsGrowth": None,
+            "debtToEquity": None,
+            "currentRatio": None,
+            "quickRatio": None,
+            "freeCashflow": None,
+            "operatingCashflow": None,
+            "totalRevenue": None,
+            "totalDebt": None,
+            "totalCash": None,
             "bookValue": info.get("bookValue"),
-            "earningsPerShare": info.get("trailingEps"),
-            "revenuePerShare": info.get("revenuePerShare"),
+            "earningsPerShare": None,
+            "revenuePerShare": None,
+            "quarterlyRevenue": [],
         }
-        
-        quarterly = ticker.quarterly_financials
-        if quarterly is not None and not quarterly.empty:
-            financials["quarterlyRevenue"] = []
-            for col in quarterly.columns[:4]:
-                try:
-                    financials["quarterlyRevenue"].append({
-                        "date": col.strftime("%Y-%m-%d"),
-                        "revenue": float(quarterly.loc["Total Revenue", col]) if "Total Revenue" in quarterly.index else None,
-                        "netIncome": float(quarterly.loc["Net Income", col]) if "Net Income" in quarterly.index else None
-                    })
-                except:
-                    pass
-        
-        return financials
     except Exception as e:
         return {"error": str(e)}
 
 
 def get_dividend_history(symbol: str) -> dict:
-    try:
-        ticker = yf.Ticker(symbol)
-        dividends = ticker.dividends
-        
-        history = []
-        if dividends is not None and not dividends.empty:
-            for date, div in dividends.items():
-                history.append({
-                    "date": date.strftime("%Y-%m-%d"),
-                    "dividend": float(div)
-                })
-        
-        info = ticker.info
-        return {
-            "symbol": symbol,
-            "name": symbol.replace(".NS", ""),
-            "dividendYield": info.get("dividendYield"),
-            "dividendRate": info.get("dividendRate"),
-            "exDividendDate": str(info.get("exDividendDate")) if info.get("exDividendDate") else None,
-            "payoutRatio": info.get("payoutRatio"),
-            "history": history[:10]
-        }
-    except Exception as e:
-        return {"error": str(e)}
+    """Dividend history is not available from Upstox / Downstox."""
+    return {
+        "symbol": symbol,
+        "name": symbol.replace(".NS", ""),
+        "dividendYield": None,
+        "dividendRate": None,
+        "exDividendDate": None,
+        "payoutRatio": None,
+        "history": [],
+        "available": False,
+        "error": "Dividend history is not available with the current data provider.",
+    }
 
 
 def get_market_status() -> dict:
     now = datetime.now()
     ist_offset = timedelta(hours=5, minutes=30)
     ist_time = now + ist_offset
-    
+
     market_open = ist_time.replace(hour=9, minute=15, second=0, microsecond=0)
     market_close = ist_time.replace(hour=15, minute=30, second=0, microsecond=0)
     pre_market_start = ist_time.replace(hour=9, minute=0, second=0, microsecond=0)
-    
+
     is_weekday = ist_time.weekday() < 5
-    
+
     if not is_weekday:
         status = "CLOSED"
         message = "Market closed (Weekend)"
@@ -142,7 +120,7 @@ def get_market_status() -> dict:
     else:
         status = "CLOSED"
         message = "Market opens at 9:15 AM IST"
-    
+
     return {
         "status": status,
         "message": message,
@@ -177,7 +155,7 @@ def get_economic_calendar() -> list[dict]:
     monthly_events = [
         ("CPI Inflation", "High", "3.5-4.5%"),
         ("IIP Data", "Medium", "3.0-4.0%"),
-        ("GST Collections", "Medium", "₹1.6-1.8 Lakh Cr"),
+        ("GST Collections", "Medium", "\u20b91.6-1.8 Lakh Cr"),
         ("Trade Deficit Data", "Medium", "-"),
     ]
 

@@ -10,3 +10,7 @@ data/gemini_config.json
 data/portfolio.json
 data/watchlist.json
 data/alerts.json
+data/upstox_instruments_full.json
+data/paper_trading_portfolio.json
+data/sentinel_alerts.json
+data/sentinel_digests.json

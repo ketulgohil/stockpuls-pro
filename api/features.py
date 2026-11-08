@@ -3,6 +3,9 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 
+from core import upstox_data
+from core.data_fetcher import get_stock_data
+
 router = APIRouter(prefix="/api/features", tags=["features"])
 
 
@@ -53,15 +56,12 @@ def earnings_calendar():
 # FII/DII Activity
 @router.get("/fii-dii")
 def fii_dii_activity():
-    import yfinance as yf
-    
     activity = []
     
     try:
         for symbol in ["^NSEI", "^BSESN"]:
-            ticker = yf.Ticker(symbol)
-            hist = ticker.history(period="1mo")
-            if len(hist) >= 2:
+            hist = get_stock_data(symbol, period="1mo")
+            if hist is not None and len(hist) >= 2:
                 change = ((hist["Close"].iloc[-1] - hist["Close"].iloc[-2]) / hist["Close"].iloc[-2]) * 100
                 activity.append({
                     "index": symbol,
@@ -84,21 +84,21 @@ def fii_dii_activity():
 # Multi-Chart Data
 @router.get("/multi-chart")
 def multi_chart_data(symbols: str = "RELIANCE.NS,TCS.NS,HDFCBANK.NS"):
-    import yfinance as yf
-    
     symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
     chart_data = {}
     
     for symbol in symbol_list[:5]:
         try:
-            ticker = yf.Ticker(symbol)
-            hist = ticker.history(period="6mo")
-            if not hist.empty:
+            hist = get_stock_data(symbol, period="6mo")
+            if hist is not None and not hist.empty:
                 normalized = []
                 base_price = hist["Close"].iloc[0]
+                if not base_price:
+                    continue
                 for date, row in hist.iterrows():
+                    date_str = date.strftime("%Y-%m-%d") if hasattr(date, "strftime") else str(date)[:10]
                     normalized.append({
-                        "date": date.strftime("%Y-%m-%d"),
+                        "date": date_str,
                         "value": round(float((row["Close"] / base_price) * 100), 2)
                     })
                 chart_data[symbol.replace(".NS", "")] = normalized

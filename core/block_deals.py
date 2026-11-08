@@ -1,4 +1,3 @@
-import yfinance as yf
 from typing import Optional
 import json
 import urllib.request

@@ -1,4 +1,5 @@
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import json
 from typing import Optional
 from core.data_fetcher import get_stock_data, get_stock_info
@@ -6,23 +7,23 @@ from core.indicators import add_all_indicators, get_latest_indicators
 
 
 GEMINI_API_KEY = ""
+client = None
 
 
 def configure_gemini(api_key: str):
-    global GEMINI_API_KEY
+    global GEMINI_API_KEY, client
     GEMINI_API_KEY = api_key
-    genai.configure(api_key=api_key)
+    client = genai.Client(api_key=api_key)
 
 
 def get_gemini_model():
-    if not GEMINI_API_KEY:
+    if not GEMINI_API_KEY or not client:
         return None
-    return genai.GenerativeModel('gemini-2.0-flash')
+    return client
 
 
 def analyze_stock_with_gemini(symbol: str) -> dict:
-    model = get_gemini_model()
-    if not model:
+    if not client:
         return {"error": "Gemini API key not configured. Go to AI tab → Settings to add your key."}
     
     try:
@@ -35,11 +36,11 @@ def analyze_stock_with_gemini(symbol: str) -> dict:
             latest = df.iloc[-1]
             technical_data = f"""
 Price: ₹{latest['Close']:.2f}
-RSI: {latest.get('RSI', 'N/A'):.2f if not latest.get('RSI') != latest.get('RSI') else 'N/A'}
-MACD: {latest.get('MACD', 'N/A'):.2f if not latest.get('MACD') != latest.get('MACD') else 'N/A'}
-SMA20: ₹{latest.get('SMA_20', 'N/A'):.2f if not latest.get('SMA_20') != latest.get('SMA_20') else 'N/A'}
-SMA50: ₹{latest.get('SMA_50', 'N/A'):.2f if not latest.get('SMA_50') != latest.get('SMA_50') else 'N/A'}
-ATR: {latest.get('ATR', 'N/A'):.2f if not latest.get('ATR') != latest.get('ATR') else 'N/A'}
+RSI: {latest.get('RSI', 'N/A'):.2f if latest.get('RSI') == latest.get('RSI') else 'N/A'}
+MACD: {latest.get('MACD', 'N/A'):.2f if latest.get('MACD') == latest.get('MACD') else 'N/A'}
+SMA20: ₹{latest.get('SMA_20', 'N/A'):.2f if latest.get('SMA_20') == latest.get('SMA_20') else 'N/A'}
+SMA50: ₹{latest.get('SMA_50', 'N/A'):.2f if latest.get('SMA_50') == latest.get('SMA_50') else 'N/A'}
+ATR: {latest.get('ATR', 'N/A'):.2f if latest.get('ATR') == latest.get('ATR') else 'N/A'}
 """
         
         stock_context = f"""
@@ -83,7 +84,10 @@ Provide your analysis in this JSON format:
 
 Be specific with numbers. Analyze based on Indian market conditions. Remember this is for educational purposes only."""
 
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model="gemini-3.5-flash",
+            contents=prompt
+        )
         
         text = response.text
         
@@ -110,8 +114,7 @@ Be specific with numbers. Analyze based on Indian market conditions. Remember th
 
 
 def ai_chat(message: str, context: str = "") -> dict:
-    model = get_gemini_model()
-    if not model:
+    if not client:
         return {"error": "Gemini API key not configured."}
     
     try:
@@ -129,7 +132,10 @@ User question: {message}
 
 Provide helpful, accurate, and actionable advice. Always mention that this is for educational purposes and not financial advice. Be concise but thorough."""
 
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model="gemini-3.5-flash",
+            contents=prompt
+        )
         
         return {
             "response": response.text,

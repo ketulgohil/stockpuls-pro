@@ -488,6 +488,49 @@ body {
     overflow: hidden;
 }
 
+/* ===== CHART STRATEGY BADGES (from Indian Day Trader) ===== */
+.chart-strategy-badges {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+}
+
+.strat-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    font-weight: 600;
+    border: 1px solid var(--border-strong);
+    background: var(--bg-surface);
+}
+
+.strat-badge .strat-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.strat-badge .dot-blue { background: #3b82f6; box-shadow: 0 0 6px rgba(59,130,246,0.4); }
+.strat-badge .dot-red { background: #ef4444; box-shadow: 0 0 6px rgba(239,68,68,0.4); }
+.strat-badge .dot-green { background: #10b981; box-shadow: 0 0 6px rgba(16,185,129,0.4); }
+
+.strat-badge .strat-title {
+    color: var(--text-secondary);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+
+.strat-badge .strat-num {
+    color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+}
+
 /* ===== GRID LAYOUTS ===== */
 .grid-2 {
     display: grid;

@@ -5,6 +5,24 @@ let currentSymbol = 'RELIANCE.NS';
 let currentTimeframe = '1d';
 let liveInterval = null;
 
+// Chart indicator series (from Indian Day Trader)
+let emaSeries = {};      // ema9, ema21, ema50, ema200
+let vwapSeries = {};     // vwap, upper1, lower1, upper2, lower2
+let oscChart = null;
+let oscSeries = { rsi: null, macd: null, signal: null, hist: null };
+let pivotLines = [];
+let patternMarkers = [];
+
+// Strategy level price lines (ORB / Target / Stop)
+let lineBreakout = null;
+let lineTarget = null;
+let lineStopLoss = null;
+let orbLevels = null;
+let barTimerInterval = null;
+
+// Active indicators state
+const activeIndicators = { ema: true, vwap: true, pivots: true, patterns: true, oscillator: false };
+
 // Price formatter - rounds to 2 decimals to avoid floating point issues
 function fmtPrice(val) {
     if (val == null || isNaN(val)) return '-';
@@ -118,16 +136,58 @@ function initChart() {
         borderDownColor: '#ef4444',
         borderUpColor: '#10b981',
         wickDownColor: '#ef4444',
-        wickUpColor: '#10b981'
+        wickUpColor: '#10b981',
+        lastValueVisible: false,
+        priceLineVisible: false
     });
 
     volumeSeries = chart.addHistogramSeries({
         priceFormat: { type: 'volume' },
-        priceScaleId: 'volume'
+        priceScaleId: 'volume',
+        lastValueVisible: false,
+        priceLineVisible: false
     });
 
     chart.priceScale('volume').applyOptions({
         scaleMargins: { top: 0.8, bottom: 0 }
+    });
+
+    // EMA ribbon series (9, 21, 50, 200)
+    const emaConfigs = [
+        { key: 'ema9', length: 9, color: '#38bdf8', width: 1 },
+        { key: 'ema21', length: 21, color: '#3b82f6', width: 2 },
+        { key: 'ema50', length: 50, color: '#f59e0b', width: 2 },
+        { key: 'ema200', length: 200, color: '#a855f7', width: 2 }
+    ];
+    emaConfigs.forEach(({ key, color, width }) => {
+        emaSeries[key] = chart.addLineSeries({
+            color: color,
+            lineWidth: width,
+            title: '',
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false
+        });
+    });
+
+    // VWAP series with bands
+    const vwapConfigs = [
+        { key: 'vwap', color: '#eab308', width: 2, style: 0 },
+        { key: 'upper1', color: 'rgba(234,179,8,0.45)', width: 1, style: 1 },
+        { key: 'lower1', color: 'rgba(234,179,8,0.45)', width: 1, style: 1 },
+        { key: 'upper2', color: 'rgba(239,68,68,0.35)', width: 1, style: 2 },
+        { key: 'lower2', color: 'rgba(16,185,129,0.35)', width: 1, style: 2 }
+    ];
+    vwapConfigs.forEach(({ key, color, width, style }) => {
+        vwapSeries[key] = chart.addLineSeries({
+            color: color,
+            lineWidth: width,
+            lineStyle: style,
+            title: '',
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false
+        });
     });
 
     new ResizeObserver(() => {
@@ -161,24 +221,74 @@ async function loadChart() {
             document.getElementById('chartAtr').textContent = info.indicators.atr?.toFixed(2) || '-';
         }
 
+        const isIntraday = ['5m', '15m', '30m', '1h'].includes(currentTimeframe);
+
+        // Show/hide strategy badges for intraday
+        const stratBadge = document.getElementById('chartStrategyBadges');
+        const barTimer = document.getElementById('chartBarTimer');
+        if (stratBadge) stratBadge.style.display = isIntraday ? 'flex' : 'none';
+        if (barTimer) {
+            barTimer.parentElement.style.display = isIntraday ? 'flex' : 'none';
+        }
+
         if (data.data && data.data.length > 0) {
             const candles = data.data.map(d => ({
                 time: d.date,
                 open: d.open,
                 high: d.high,
                 low: d.low,
-                close: d.close
+                close: d.close,
+                volume: d.volume || 0
             }));
 
             const volumes = data.data.map(d => ({
                 time: d.date,
-                value: d.volume,
+                value: d.volume || 0,
                 color: d.close >= d.open ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'
             }));
 
             candleSeries.setData(candles);
             volumeSeries.setData(volumes);
             chart.timeScale().fitContent();
+
+            // --- Indian Day Trader chart enhancements ---
+
+            // 1. ORB Levels (opening range breakout) for intraday
+            if (isIntraday) {
+                orbLevels = computeOrbLevels(candles);
+                drawStrategyLines(orbLevels);
+                updateOrbBadge(orbLevels);
+                startBarTimer(currentTimeframe);
+            } else {
+                clearStrategyLines();
+                stopBarTimer();
+            }
+
+            // 2. EMA ribbon
+            if (activeIndicators.ema) {
+                updateEmaSeries(candles);
+            }
+
+            // 3. VWAP with bands (intraday only)
+            if (activeIndicators.vwap && isIntraday) {
+                updateVwapSeries(candles);
+            }
+
+            // 4. Camarilla pivots (daily+)
+            if (activeIndicators.pivots && !isIntraday) {
+                updatePivotLines(candles);
+            }
+
+            // 5. Candlestick pattern markers
+            if (activeIndicators.patterns) {
+                updatePatternMarkers(candles);
+            }
+
+            // 6. Oscillator sub-pane (RSI/MACD) - client-side computed
+            if (activeIndicators.oscillator) {
+                initOscillatorChart();
+                renderOscillatorData(candles);
+            }
         }
     } catch (err) {
         console.error('Chart error:', err);
@@ -191,6 +301,275 @@ function changeTimeframe(tf, btn) {
     document.querySelectorAll('.timeframe-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     loadChart();
+}
+
+// ============================================================================
+// INDIAN DAY TRADER CHART ENHANCEMENTS
+// ============================================================================
+
+// --- ORB Levels (Opening Range Breakout) ---
+function computeOrbLevels(candles) {
+    if (!candles || candles.length === 0) return null;
+
+    // Group candles by IST date
+    const toIstDateKey = (isoString) => {
+        const d = new Date(isoString + 'T00:00:00+05:30');
+        const y = d.getUTCFullYear();
+        const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(d.getUTCDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    };
+
+    const latestDayKey = toIstDateKey(candles[candles.length - 1].time);
+    const todayCandles = candles.filter(c => toIstDateKey(c.time) === latestDayKey);
+
+    // ORB window: 09:15 to 09:30 IST
+    const orbBars = todayCandles.filter(c => {
+        const d = new Date(c.time + 'T00:00:00+05:30');
+        const totalMin = d.getUTCHours() * 60 + d.getUTCMinutes();
+        return totalMin >= (3 * 60 + 45) && totalMin < (4 * 60);
+    });
+
+    if (orbBars.length === 0) return null;
+
+    const minBars = currentTimeframe === '1m' ? 10 : 3;
+    if (orbBars.length < minBars) return null;
+
+    const orbHigh = Math.max(...orbBars.map(b => b.high));
+    const orbLow = Math.min(...orbBars.map(b => b.low));
+    const risk = orbHigh - orbLow;
+    const target = orbHigh + (risk * 1.5);
+
+    return {
+        breakout: parseFloat(orbHigh.toFixed(2)),
+        stopLoss: parseFloat(orbLow.toFixed(2)),
+        target: parseFloat(target.toFixed(2))
+    };
+}
+
+function drawStrategyLines(levels) {
+    if (!candleSeries) return;
+
+    clearStrategyLines();
+
+    if (!levels) return;
+
+    lineBreakout = candleSeries.createPriceLine({
+        price: levels.breakout,
+        color: '#3b82f6',
+        lineWidth: 2,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: 'ORB HIGH'
+    });
+
+    lineTarget = candleSeries.createPriceLine({
+        price: levels.target,
+        color: '#10b981',
+        lineWidth: 2,
+        lineStyle: 2,
+        axisLabelVisible: false,
+        title: 'TARGET (1.5R)'
+    });
+
+    lineStopLoss = candleSeries.createPriceLine({
+        price: levels.stopLoss,
+        color: '#ef4444',
+        lineWidth: 2,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: 'STOP LOSS'
+    });
+}
+
+function clearStrategyLines() {
+    if (lineBreakout) {
+        try { candleSeries.removePriceLine(lineBreakout); } catch (e) {}
+        lineBreakout = null;
+    }
+    if (lineTarget) {
+        try { candleSeries.removePriceLine(lineTarget); } catch (e) {}
+        lineTarget = null;
+    }
+    if (lineStopLoss) {
+        try { candleSeries.removePriceLine(lineStopLoss); } catch (e) {}
+        lineStopLoss = null;
+    }
+}
+
+function updateOrbBadge(levels) {
+    if (!levels) return;
+    const elBreakout = document.getElementById('stratBreakoutVal');
+    const elStop = document.getElementById('stratStopVal');
+    const elTarget = document.getElementById('stratTargetVal');
+    if (elBreakout) elBreakout.textContent = '₹' + levels.breakout.toFixed(2);
+    if (elStop) elStop.textContent = '₹' + levels.stopLoss.toFixed(2);
+    if (elTarget) elTarget.textContent = '₹' + levels.target.toFixed(2);
+}
+
+// --- Bar Close Timer (intraday) ---
+function startBarTimer(timeframe) {
+    stopBarTimer();
+    const stepSec = { '1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600 }[timeframe] || 300;
+    const el = document.getElementById('chartBarTimer');
+    if (!el) return;
+
+    function update() {
+        const now = new Date();
+        const istTime = new Date(now.getTime() + (now.getTimezoneOffset() * 60000) + (5.5 * 3600000));
+        const totalSecToday = istTime.getHours() * 3600 + istTime.getMinutes() * 60 + istTime.getSeconds();
+        const sessionOpen = 9 * 3600 + 15 * 60; // 09:15 IST
+        let elapsed = totalSecToday - sessionOpen;
+        if (elapsed < 0) elapsed = 0;
+        const secsIntoCandle = elapsed % stepSec;
+        const secsRemaining = stepSec - secsIntoCandle;
+        const remM = Math.floor(secsRemaining / 60);
+        const remS = secsRemaining % 60;
+        el.textContent = String(remM).padStart(2, '0') + ':' + String(remS).padStart(2, '0');
+    }
+    update();
+    barTimerInterval = setInterval(update, 1000);
+}
+
+function stopBarTimer() {
+    if (barTimerInterval) {
+        clearInterval(barTimerInterval);
+        barTimerInterval = null;
+    }
+    const el = document.getElementById('chartBarTimer');
+    if (el) el.textContent = '--:--';
+}
+
+// --- EMA Ribbon ---
+function updateEmaSeries(candles) {
+    if (!window.Indicators || !window.Indicators.computeEma) return;
+    const emaConfigs = [
+        { key: 'ema9', length: 9 },
+        { key: 'ema21', length: 21 },
+        { key: 'ema50', length: 50 },
+        { key: 'ema200', length: 200 }
+    ];
+    emaConfigs.forEach(({ key, length }) => {
+        const emaData = window.Indicators.computeEma(candles, length);
+        if (emaSeries[key]) {
+            emaSeries[key].setData(emaData || []);
+        }
+    });
+}
+
+// --- VWAP with bands ---
+function updateVwapSeries(candles) {
+    if (!window.Indicators || !window.Indicators.computeVwap) return;
+    const result = window.Indicators.computeVwap(candles);
+    if (!result) return;
+    const keys = ['vwap', 'upper1', 'lower1', 'upper2', 'lower2'];
+    keys.forEach(k => {
+        if (vwapSeries[k]) vwapSeries[k].setData(result[k] || []);
+    });
+}
+
+// --- Camarilla Pivots ---
+function updatePivotLines(candles) {
+    if (!candleSeries) return;
+    // Clear existing
+    pivotLines.forEach(l => {
+        try { candleSeries.removePriceLine(l); } catch (e) {}
+    });
+    pivotLines = [];
+
+    if (!window.Indicators || !window.Indicators.computePivots) return;
+
+    // Group by date, find previous day
+    const toIstDateKey = (isoString) => {
+        const d = new Date(isoString + 'T00:00:00+05:30');
+        return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+    };
+    const datesMap = new Map();
+    candles.forEach(b => {
+        const k = toIstDateKey(b.time);
+        if (!datesMap.has(k)) datesMap.set(k, []);
+        datesMap.get(k).push(b);
+    });
+    const sortedDates = Array.from(datesMap.keys()).sort();
+    if (sortedDates.length < 2) return;
+    const prevKey = sortedDates[sortedDates.length - 2];
+    const prevBars = datesMap.get(prevKey);
+    if (!prevBars || !prevBars.length) return;
+
+    let prevHigh = -Infinity, prevLow = Infinity;
+    prevBars.forEach(b => {
+        if (b.high > prevHigh) prevHigh = b.high;
+        if (b.low < prevLow) prevLow = b.low;
+    });
+    const prevClose = prevBars[prevBars.length - 1].close;
+
+    const pivots = window.Indicators.computePivots({ high: prevHigh, low: prevLow, close: prevClose });
+    if (!pivots) return;
+
+    const levels = [
+        { price: pivots.r4, color: '#f43f5e', title: 'CAM R4' },
+        { price: pivots.r3, color: '#fb923c', title: 'CAM R3' },
+        { price: pivots.s3, color: '#34d399', title: 'CAM S3' },
+        { price: pivots.s4, color: '#38bdf8', title: 'CAM S4' }
+    ];
+    levels.forEach(({ price, color, title }) => {
+        try {
+            const line = candleSeries.createPriceLine({
+                price: price,
+                color: color,
+                lineWidth: 1,
+                lineStyle: 2,
+                axisLabelVisible: false,
+                title: title + ' ₹' + price.toFixed(2)
+            });
+            pivotLines.push(line);
+        } catch (e) {}
+    });
+}
+
+// --- Candlestick Pattern Markers ---
+function updatePatternMarkers(candles) {
+    if (!candleSeries || !window.Indicators || !window.Indicators.detectCandlestickPatterns) return;
+    const markers = window.Indicators.detectCandlestickPatterns(candles);
+    try {
+        candleSeries.setMarkers(markers || []);
+    } catch (e) {}
+}
+
+// --- Oscillator Sub-Chart (RSI / MACD) ---
+function initOscillatorChart() {
+    if (oscChart) return;
+    const container = document.getElementById('oscillator-container');
+    if (!container || typeof LightweightCharts === 'undefined') return;
+
+    oscChart = LightweightCharts.createChart(container, {
+        width: container.clientWidth || 800,
+        height: 120,
+        layout: { background: { color: '#0a0d14' }, textColor: '#94a3b8', fontSize: 10 },
+        grid: { vertLines: { color: '#161c2d' }, horzLines: { color: '#161c2d' } },
+        crosshair: { mode: 1, vertLine: { color: '#3b82f6', width: 1, style: 2 }, horzLine: { color: '#3b82f6', width: 1, style: 2 } },
+        rightPriceScale: { borderColor: '#1e2638', scaleMargins: { top: 0.1, bottom: 0.1 } },
+        timeScale: { borderColor: '#1e2638', timeVisible: true, secondsVisible: false }
+    });
+
+    oscSeries.rsi = oscChart.addLineSeries({ color: '#a855f7', lineWidth: 1, title: 'RSI' });
+    oscSeries.macd = oscChart.addLineSeries({ color: '#3b82f6', lineWidth: 1, title: 'MACD' });
+    oscSeries.signal = oscChart.addLineSeries({ color: '#f59e0b', lineWidth: 1, title: 'Signal' });
+    oscSeries.hist = oscChart.addHistogramSeries({ color: '#10b981', priceFormat: { type: 'volume' }, priceScaleId: 'volume', lastValueVisible: false, priceLineVisible: false });
+}
+
+function renderOscillatorData(candles) {
+    if (!window.Indicators) return;
+    const rsiData = window.Indicators.computeRsi(candles, 14);
+    const macdResult = window.Indicators.computeMacd(candles, 12, 26, 9);
+
+    if (oscSeries.rsi) oscSeries.rsi.setData(rsiData || []);
+    if (oscSeries.macd && macdResult) oscSeries.macd.setData(macdResult.macd || []);
+    if (oscSeries.signal && macdResult) oscSeries.signal.setData(macdResult.signal || []);
+    if (oscSeries.hist && macdResult) {
+        const histData = (macdResult.histogram || []).map(h => ({ time: h.time, value: h.value, color: h.value >= 0 ? 'rgba(16,185,129,0.5)' : 'rgba(239,68,68,0.5)' }));
+        oscSeries.hist.setData(histData);
+    }
 }
 
 // Dashboard Gainers/Losers

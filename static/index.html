@@ -9,6 +9,7 @@
     <meta name="theme-color" content="#0a0a0f">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="/static/js/indicators.js?v=1.0"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('/static/sw.js').catch(() => {});
@@ -258,6 +259,29 @@
                                 <button class="timeframe-btn" onclick="changeTimeframe('6mo', this)">6M</button>
                                 <button class="timeframe-btn" onclick="changeTimeframe('1y', this)">1Y</button>
                                 <button class="timeframe-btn" onclick="changeTimeframe('5y', this)">5Y</button>
+                                <!-- Intraday timeframes from Indian Day Trader -->
+                                <button class="timeframe-btn" onclick="changeTimeframe('5m', this)">5M</button>
+                                <button class="timeframe-btn" onclick="changeTimeframe('15m', this)">15M</button>
+                                <button class="timeframe-btn" onclick="changeTimeframe('30m', this)">30M</button>
+                                <button class="timeframe-btn" onclick="changeTimeframe('1h', this)">1H</button>
+                            </div>
+                        </div>
+                        <!-- Strategy Levels Badges (from Indian Day Trader chart) -->
+                        <div class="chart-strategy-badges" id="chartStrategyBadges" style="display:none;">
+                            <div class="strat-badge badge-breakout" title="15-min Opening Range High">
+                                <span class="strat-dot dot-blue"></span>
+                                <span class="strat-title">ORB HIGH:</span>
+                                <span id="stratBreakoutVal" class="strat-num">--</span>
+                            </div>
+                            <div class="strat-badge badge-stop" title="Stop Loss (Range Low)">
+                                <span class="strat-dot dot-red"></span>
+                                <span class="strat-title">STOP LOSS:</span>
+                                <span id="stratStopVal" class="strat-num">--</span>
+                            </div>
+                            <div class="strat-badge badge-target" title="Target (1.5R)">
+                                <span class="strat-dot dot-green"></span>
+                                <span class="strat-title">TARGET:</span>
+                                <span id="stratTargetVal" class="strat-num">--</span>
                             </div>
                         </div>
                         <div class="chart-indicators">
@@ -275,6 +299,10 @@
                             </span>
                             <span class="indicator-tooltip" data-tip="Average True Range - Volatility">
                                 ATR: <strong id="chartAtr">-</strong>
+                            </span>
+                            <!-- Bar close timer (intraday) -->
+                            <span class="indicator-tooltip" data-tip="Time remaining until current bar closes">
+                                BAR CLOSE: <strong id="chartBarTimer">--:--</strong>
                             </span>
                         </div>
                         <div id="chartContainer" class="chart-container"></div>

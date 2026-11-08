@@ -354,6 +354,11 @@ _PERIOD_DAYS = {
     "10y": 3700,
     "ytd": 400,
     "max": 3700,
+    # Intraday periods: only recent days are available for intraday bars
+    "5m": 1,
+    "15m": 1,
+    "30m": 1,
+    "1h": 1,
 }
 
 _INTERVAL_MAP = {
@@ -381,6 +386,9 @@ def get_stock_data(symbol: str, period: str = "6mo", interval: str = "1d") -> Op
     today = datetime.now().strftime("%Y-%m-%d")
     from_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
     upstox_interval = _INTERVAL_MAP.get(interval, "day")
+    # Intraday intervals: Upstox historical-candle endpoint with from_date/to_date
+    # range returns empty. Use to_date only (recent intraday data) instead.
+    is_intraday = interval in ("1m", "5m", "15m", "30m", "1h")
 
     try:
         raw = run_async(
@@ -388,7 +396,7 @@ def get_stock_data(symbol: str, period: str = "6mo", interval: str = "1d") -> Op
                 symbol,
                 interval=upstox_interval,
                 to_date=today,
-                from_date=from_date,
+                **({"from_date": from_date} if not is_intraday else {}),
             )
         )
     except Exception as exc:

@@ -8,7 +8,8 @@ from api import (
     stocks, screener, signals, portfolio, sector, tools,
     news, backtest, market, compare, patterns,
     correlation, breadth, fundamentals, analysis, alerts, export, ai, gemini, advanced, more, features, gold, analytics,
-    mutual_funds, currency, block_deals, quarterly_results, screener_strategies, downstox, sentinel, upstox_trading
+    mutual_funds, currency, block_deals, quarterly_results, screener_strategies, downstox, sentinel, upstox_trading,
+    exit, budget, risk, scanner, entry, timemachine
 )
 import inngest.fast_api
 from core.workflows.inngest_client import inngest_client
@@ -53,6 +54,12 @@ app.include_router(export.router)
 app.include_router(ai.router)
 app.include_router(gemini.router)
 app.include_router(advanced.router)
+app.include_router(exit.router)
+app.include_router(budget.router)
+app.include_router(risk.router)
+app.include_router(scanner.router)
+app.include_router(entry.router)
+app.include_router(timemachine.router)
 app.include_router(more.router)
 app.include_router(features.router)
 app.include_router(gold.router)

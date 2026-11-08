@@ -30,3 +30,4 @@ data/institutional_deals.json
 data/institutional_pit.json
 data/trader_config.json
 data/prices.json
+data/news_state.json

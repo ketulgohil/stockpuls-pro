@@ -104,26 +104,6 @@ class RiskCheckRequest(BaseModel):
     now: Optional[str] = None
 
 
-class RiskCheckResponse(BaseModel):
-    schema_version: str
-    policy_version: str
-    is_advisory: bool
-    advisory_note: str
-    input_artifact_hash: str
-    date: str
-    now_ist: str
-    created_at: str
-    expires_at: str
-    daily_loss_halted: bool
-    paper: bool
-    results: list[dict]
-    pass_count: int
-    block_count: int
-    warnings: list[str]
-    cash_after: float
-    today_summary: dict
-
-
 def _d(v):
     if v is None:
         return None
@@ -291,7 +271,7 @@ def placed_today(state, today):
     return out
 
 
-@router.post("/check", response_model=RiskCheckResponse)
+@router.post("/check")
 def risk_check(req: RiskCheckRequest):
     """Check proposed orders against risk limits. Returns PASS/BLOCK verdicts."""
     try:

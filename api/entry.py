@@ -123,9 +123,9 @@ def evaluate(chart_bars, now_utc, setup="orb", or_minutes=15, interval="5m",
         "min_volume_x": min_volume_x,
     }
 
-    ok, why = is_trading_day(day)
+    ok = is_trading_day(day)
     if not ok:
-        res.update(status="no-data", phase="closed", reason="NSE closed today (%s)" % why)
+        res.update(status="no-data", phase="closed", reason="NSE closed today")
         return res
 
     open_dt = datetime.datetime.combine(day, OPEN, tzinfo=IST)

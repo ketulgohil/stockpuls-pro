@@ -14,3 +14,19 @@ data/upstox_instruments_full.json
 data/paper_trading_portfolio.json
 data/sentinel_alerts.json
 data/sentinel_digests.json
+# Runtime state from IDT merge (not committed)
+data/exit_plans.json
+data/budget_orders.json
+data/risk.json
+data/timemachine.json
+data/scanner_scans.json
+data/entry.json
+data/alerts.json
+data/alert_state.json
+data/broker_slips.json
+data/fill_log.json
+data/audit.log
+data/institutional_deals.json
+data/institutional_pit.json
+data/trader_config.json
+data/prices.json

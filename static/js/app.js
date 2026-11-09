@@ -210,7 +210,7 @@ function showTab(tabName) {
     // Load data for specific tabs
     switch(tabName) {
         case 'dashboard': loadChart(); loadDashboardGainersLosers(); break;
-        case 'market': loadMarket(); setTimeout(loadOptionChain, 500); break;
+        case 'market': loadMarket(); break;
         case 'signals': loadSignals(); break;
         case 'sector': loadSectors(); break;
         case 'news': loadNews(); break;
@@ -5130,85 +5130,6 @@ function updateClock() {
 // ===== OPTION CHAIN =====
 let optionChainRefreshInterval = null;
 
-async function loadOptionChain() {
-    try {
-        const response = await fetch('/api/options/chain');
-        const data = await response.json();
-
-        if (data.error) {
-            console.error('Option chain error:', data.error);
-            const tbody = document.getElementById('optionChainBody');
-            if (tbody) tbody.innerHTML = `<tr><td colspan="11" class="loading-cell" style="color:var(--red);">Error: ${data.error}</td></tr>`;
-            return;
-        }
-
-        // Update PCR badge
-        const pcrBadge = document.getElementById('pcrBadge');
-        if (pcrBadge) {
-            pcrBadge.textContent = `PCR: ${data.putCallRatio}`;
-            pcrBadge.className = `pcr-badge ${data.putCallRatio > 1.2 ? 'bullish' : (data.putCallRatio < 0.8 ? 'bearish' : 'neutral')}`;
-        }
-
-        // Update expiry dropdown
-        const expirySelect = document.getElementById('optionExpiry');
-        if (expirySelect && data.availableExpiries) {
-            expirySelect.innerHTML = data.availableExpiries.map(e =>
-                `<option value="${e}" ${e === data.expiry ? 'selected' : ''}>${e}</option>`
-            ).join('');
-        }
-
-        // Build option chain table
-        const tbody = document.getElementById('optionChainBody');
-        if (!tbody) return;
-
-        // Merge calls and puts by strike
-        const strikes = [...new Set([
-            ...data.calls.map(c => c.strike),
-            ...data.puts.map(p => p.strike)
-        ])].sort((a, b) => b - a);
-
-        const currentPrice = data.currentPrice;
-        const atmStrike = Math.round(currentPrice / 50) * 50;
-
-        tbody.innerHTML = strikes.map(strike => {
-            const call = data.calls.find(c => c.strike === strike) || {};
-            const put = data.puts.find(p => p.strike === strike) || {};
-            const isITMCall = strike <= currentPrice;
-            const isITMPut = strike >= currentPrice;
-            const isATM = strike === atmStrike;
-
-            return `
-                <tr class="${isITMCall ? 'itm-row' : ''}">
-                    <td class="oi-cell">${call.openInterest ? call.openInterest.toLocaleString() : '-'}</td>
-                    <td class="vol-cell">${call.volume ? call.volume.toLocaleString() : '-'}</td>
-                    <td class="iv-cell">${call.impliedVolatility ? (call.impliedVolatility * 100).toFixed(1) + '%' : '-'}</td>
-                    <td class="ltp-cell ${call.change > 0 ? 'positive' : (call.change < 0 ? 'negative' : '')}">
-                        ${call.lastPrice || '-'}
-                    </td>
-                    <td class="change-cell ${call.change > 0 ? 'positive' : (call.change < 0 ? 'negative' : '')}">
-                        ${call.change ? (call.change > 0 ? '+' : '') + call.change.toFixed(2) : '-'}
-                    </td>
-                    <td class="strike-cell ${isATM ? 'atm' : ''}">
-                        ${strike}
-                    </td>
-                    <td class="change-cell ${put.change > 0 ? 'positive' : (put.change < 0 ? 'negative' : '')}">
-                        ${put.change ? (put.change > 0 ? '+' : '') + put.change.toFixed(2) : '-'}
-                    </td>
-                    <td class="ltp-cell ${put.change > 0 ? 'positive' : (put.change < 0 ? 'negative' : '')}">
-                        ${put.lastPrice || '-'}
-                    </td>
-                    <td class="iv-cell">${put.impliedVolatility ? (put.impliedVolatility * 100).toFixed(1) + '%' : '-'}</td>
-                    <td class="vol-cell">${put.volume ? put.volume.toLocaleString() : '-'}</td>
-                    <td class="oi-cell">${put.openInterest ? put.openInterest.toLocaleString() : '-'}</td>
-                </tr>
-            `;
-        }).join('');
-
-    } catch (error) {
-        console.error('Error loading option chain:', error);
-    }
-}
-
 // ===== MARKET DEPTH =====
 async function loadMarketDepth(symbol) {
     if (!symbol) return showToast('Enter a stock symbol', 'warning');
@@ -6015,12 +5936,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setInterval(loadVolumeAlerts, 300000);
     }, 2000);
 
-    // Load option chain after a short delay
-    setTimeout(loadOptionChain, 2000);
-    // Refresh option chain every 2 minutes
-    setInterval(loadOptionChain, 120000);
-
-    // Connect WebSocket for live index prices
+// Connect WebSocket for live index prices
     setTimeout(connectWebSocket, 1000);
 
     // Initialize Sentinel AI Desk & Web Audio UI

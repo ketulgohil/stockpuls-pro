@@ -18,7 +18,8 @@ from core.workflows.functions import inngest_functions
 from core.sentinel.dispatcher import dispatcher
 from core.sentinel.engine import sentinel_engine
 from core import upstox_data
-from core.data_fetcher import get_stock_data, get_live_price
+from core.data_fetcher import ALL_SYMBOLS, get_stock_data, get_live_price
+from core.trader_core import IST
 
 app = FastAPI(
     title="Indian Stock Market Analysis Platform",
@@ -86,13 +87,20 @@ inngest.fast_api.serve(app, inngest_client, inngest_functions)
 
 # ===== WebSocket Live Price Streaming =====
 
+MAX_CONNECTIONS = 50
+MAX_SYMBOLS_PER_CLIENT = 20
+
 class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket) -> bool:
+        if len(self.active_connections) >= MAX_CONNECTIONS:
+            await websocket.close(code=1008, reason="Server busy: connection limit reached")
+            return False
         await websocket.accept()
         self.active_connections.append(websocket)
+        return True
 
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
@@ -131,7 +139,8 @@ async def _fetch_live_prices(symbols):
 
 @app.websocket("/ws/live-prices")
 async def websocket_live_prices(websocket: WebSocket):
-    await ws_manager.connect(websocket)
+    if not await ws_manager.connect(websocket):
+        return
     symbols = list(DEFAULT_LIVE_SYMBOLS)
 
     async def push_prices():
@@ -151,8 +160,8 @@ async def websocket_live_prices(websocket: WebSocket):
             data = await asyncio.wait_for(websocket.receive_text(), timeout=2.0)
             params = json.loads(data)
             incoming = params.get("symbols") or []
-            if incoming:
-                symbols = incoming
+            if incoming and isinstance(incoming, list):
+                symbols = [str(s).strip().upper() for s in incoming[:MAX_SYMBOLS_PER_CLIENT] if s]
         except asyncio.TimeoutError:
             pass
 
@@ -174,8 +183,8 @@ async def websocket_live_prices(websocket: WebSocket):
                 continue
 
             incoming = params.get("symbols") or []
-            if incoming:
-                symbols = incoming
+            if incoming and isinstance(incoming, list):
+                symbols = [str(s).strip().upper() for s in incoming[:MAX_SYMBOLS_PER_CLIENT] if s]
                 await push_prices()
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
@@ -257,8 +266,7 @@ def root():
 @app.get("/api/market/status")
 async def get_market_status():
     """Get current market status for NSE/BSE"""
-    from datetime import datetime
-    now = datetime.now()
+    now = datetime.now(IST)
     hour = now.hour
     minute = now.minute
     weekday = now.weekday()  # 0=Mon, 6=Sun
@@ -389,32 +397,38 @@ def health():
 async def get_volume_alerts():
     """Get stocks with unusual volume activity"""
     try:
-        # Get top traded stocks from NIFTY 50
-        symbols = ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS",
-                   "HINDUNILVR.NS", "SBIN.NS", "BHARTIARTL.NS", "ITC.NS", "KOTAKBANK.NS",
-                   "LT.NS", "AXISBANK.NS", "ASIANPAINT.NS", "MARUTI.NS", "HCLTECH.NS",
-                   "SUNPHARMA.NS", "TATAMOTORS.NS", "WIPRO.NS", "ULTRACEMCO.NS", "ONGC.NS"]
+        # Use all available NSE symbols from the symbol universe
+        symbols = ALL_SYMBOLS
+        if not symbols:
+            return {"alerts": [], "timestamp": datetime.now().isoformat()}
+
+        # Fetch quotes for all symbols in batches (Upstox supports up to 500)
+        quotes = await asyncio.to_thread(get_quotes, list(symbols))
 
         alerts = []
         for symbol in symbols:
             try:
-                hist = get_stock_data(symbol, period="1mo", interval="1d")
+                quote = quotes.get(symbol) or quotes.get(symbol.replace(".NS", "").replace(".BO", "").strip().upper())
+                if not quote:
+                    continue
+
+                hist = await asyncio.to_thread(get_stock_data, [symbol], period="1mo", interval="1d")
                 if hist is None or hist.empty or len(hist) < 2:
                     continue
 
                 # Average volume of the previous 20 daily candles (exclude today)
-                avg_vol = hist["Volume"].iloc[:-1].tail(20).mean()
+                avg_vol = hist[symbol if symbol.endswith(".NS") else symbol.replace(".NS", "")]["Volume"].iloc[:-1].tail(20).mean()
                 if not avg_vol or avg_vol <= 0:
                     continue
 
                 live = get_live_price(symbol) or {}
-                today_vol = live.get("volume") or int(hist["Volume"].iloc[-1])
+                today_vol = live.get("volume") or int(hist[symbol if symbol.endswith(".NS") else symbol.replace(".NS", "")]["Volume"].iloc[-1])
                 vol_ratio = today_vol / avg_vol
                 if vol_ratio > 1.5:  # 1.5x average volume
-                    price = live.get("price") or float(hist["Close"].iloc[-1])
+                    price = live.get("price") or float(hist[symbol if symbol.endswith(".NS") else symbol.replace(".NS", "")]["Close"].iloc[-1])
                     change = live.get("changePercent")
                     if change is None:
-                        change = ((hist["Close"].iloc[-1] - hist["Close"].iloc[-2]) / hist["Close"].iloc[-2]) * 100
+                        change = ((hist[symbol if symbol.endswith(".NS") else symbol.replace(".NS", "")]["Close"].iloc[-1] - hist[symbol if symbol.endswith(".NS") else symbol.replace(".NS", "")]["Close"].iloc[-2]) / hist[symbol if symbol.endswith(".NS") else symbol.replace(".NS", "")]["Close"].iloc[-2]) * 100
                     alerts.append({
                         "symbol": symbol.replace(".NS", ""),
                         "price": round(price, 2),

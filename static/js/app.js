@@ -2934,6 +2934,19 @@ function startLiveUpdates() {
     }
 }
 
+// Dashboard Gainers/Losers real-time refresh
+// No longer polling every 60s via REST — the WebSocket liveQuoteCache
+// pushes updates every ~3s, and applyLiveDomQuotes() reads from it.
+function startAutoRefreshGainersLosers() {
+    // Ensure the WS socket is connected and subscribed so that
+    // liveQuoteCache gets populated with top-movers symbols.
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        connectWebSocket();
+    }
+    // No setInterval needed; WebSocket ticks every ~3s will
+    // refresh the DOM quotes via the existing applyLiveDomQuotes() path.
+}
+
 // Keyboard Shortcuts
 document.addEventListener('keydown', (e) => {
     // '/' focuses the search box

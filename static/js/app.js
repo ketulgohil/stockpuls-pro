@@ -1364,10 +1364,10 @@ async function loadDashboardGainersLosers() {
                     <thead><tr><th>Stock</th><th>Price</th><th>Change</th></tr></thead>
                     <tbody>
                         ${gainersData.gainers.map(s => `
-                            <tr onclick="selectStock('${s.symbol}')" style="cursor:pointer">
+                            <tr data-live-symbol="${s.symbol}" onclick="selectStock('${s.symbol}')" style="cursor:pointer">
                                 <td><strong>${s.name}</strong></td>
-                                <td>${fmtPrice(s.price)}</td>
-                                <td class="positive">+${fmtPct(s.changePercent)}</td>
+                                <td data-live-price>${fmtPrice(s.price)}</td>
+                                <td class="positive" data-live-change-pct>+${fmtPct(s.changePercent)}</td>
                             </tr>
                         `).join('')}
                     </tbody>
@@ -1381,16 +1381,19 @@ async function loadDashboardGainersLosers() {
                     <thead><tr><th>Stock</th><th>Price</th><th>Change</th></tr></thead>
                     <tbody>
                         ${losersData.losers.map(s => `
-                            <tr onclick="selectStock('${s.symbol}')" style="cursor:pointer">
+                            <tr data-live-symbol="${s.symbol}" onclick="selectStock('${s.symbol}')" style="cursor:pointer">
                                 <td><strong>${s.name}</strong></td>
-                                <td>${fmtPrice(s.price)}</td>
-                                <td class="negative">${fmtPct(s.changePercent)}</td>
+                                <td data-live-price>${fmtPrice(s.price)}</td>
+                                <td class="negative" data-live-change-pct>${fmtPct(s.changePercent)}</td>
                             </tr>
                         `).join('')}
                     </tbody>
                 </table>
             `;
         }
+
+        refreshLiveSubscriptions();
+        applyLiveDomQuotes();
     } catch (err) {
         console.error('Dashboard gainers/losers error:', err);
     }
@@ -1451,13 +1454,13 @@ async function loadChartWatchlist() {
                 const changePct = w.changePercent || 0;
                 const isPositive = changePct >= 0;
                 return `
-                    <div class="watchlist-item-pro" onclick="selectStockFromChartWatchlist('${sym}')" role="button" tabindex="0" aria-label="Select ${displaySymbol(sym)}">
+                    <div class="watchlist-item-pro" data-live-symbol="${sym}" onclick="selectStockFromChartWatchlist('${sym}')" role="button" tabindex="0" aria-label="Select ${displaySymbol(sym)}">
                         <div class="watchlist-item-info">
                             <div class="symbol">${displaySymbol(sym)}</div>
-                            <div class="price">${fmtPrice(w.price)}</div>
+                            <div class="price" data-live-price>${fmtPrice(w.price)}</div>
                         </div>
                         <div style="display:flex; align-items:center; gap:10px;">
-                            <div class="watchlist-item-change ${isPositive ? 'positive' : 'negative'}">
+                            <div class="watchlist-item-change ${isPositive ? 'positive' : 'negative'}" data-live-change-pct>
                                 ${isPositive ? '+' : ''}${fmtPct(changePct)}
                             </div>
                             <button class="watchlist-delete-btn" onclick="event.stopPropagation(); removeFromChartWatchlist('${sym}')" title="Remove from watchlist" aria-label="Remove ${displaySymbol(sym)} from watchlist">
@@ -1478,6 +1481,9 @@ async function loadChartWatchlist() {
                 </div>
             `;
         }
+
+        refreshLiveSubscriptions();
+        applyLiveDomQuotes();
     } catch (err) {
         console.error('Chart watchlist error:', err);
         container.innerHTML = '<p class="placeholder" style="text-align:center; font-size:12px;">Error loading watchlist</p>';
@@ -1704,10 +1710,10 @@ async function loadMarket() {
     
     if (data.indices) {
         container.innerHTML = data.indices.map(idx => `
-            <div class="index-card">
+            <div class="index-card" data-live-symbol="${idx.symbol}">
                 <div class="name">${idx.name}</div>
-                <div class="value">${fmtPrice(idx.price)}</div>
-                <div class="change ${idx.change >= 0 ? 'positive' : 'negative'}">
+                <div class="value" data-live-price>${fmtPrice(idx.price)}</div>
+                <div class="change ${idx.change >= 0 ? 'positive' : 'negative'}" data-live-change>
                     ${fmtChg(idx.change)} (${fmtPct(idx.changePercent)})
                 </div>
             </div>
@@ -1724,10 +1730,10 @@ async function loadMarket() {
                 <thead><tr><th>Stock</th><th>Price</th><th>Change</th></tr></thead>
                 <tbody>
                     ${gainersData.gainers.map(s => `
-                        <tr onclick="selectStock('${s.symbol}'); showTab('chart')" style="cursor:pointer">
+                        <tr data-live-symbol="${s.symbol}" onclick="selectStock('${s.symbol}'); showTab('chart')" style="cursor:pointer">
                             <td><strong>${s.name}</strong></td>
-                            <td>${fmtPrice(s.price)}</td>
-                            <td class="positive">+${fmtPct(s.changePercent)}</td>
+                            <td data-live-price>${fmtPrice(s.price)}</td>
+                            <td class="positive" data-live-change-pct>+${fmtPct(s.changePercent)}</td>
                         </tr>
                     `).join('')}
                 </tbody>
@@ -1741,16 +1747,19 @@ async function loadMarket() {
                 <thead><tr><th>Stock</th><th>Price</th><th>Change</th></tr></thead>
                 <tbody>
                     ${losersData.losers.map(s => `
-                        <tr onclick="selectStock('${s.symbol}'); showTab('chart')" style="cursor:pointer">
+                        <tr data-live-symbol="${s.symbol}" onclick="selectStock('${s.symbol}'); showTab('chart')" style="cursor:pointer">
                             <td><strong>${s.name}</strong></td>
-                            <td>${fmtPrice(s.price)}</td>
-                            <td class="negative">${fmtPct(s.changePercent)}</td>
+                            <td data-live-price>${fmtPrice(s.price)}</td>
+                            <td class="negative" data-live-change-pct>${fmtPct(s.changePercent)}</td>
                         </tr>
                     `).join('')}
                 </tbody>
             </table>
         `;
     }
+
+    refreshLiveSubscriptions();
+    applyLiveDomQuotes();
 }
 
 // Signals
@@ -1764,12 +1773,12 @@ async function loadSignals() {
                 <thead><tr><th>Stock</th><th>Signal</th><th>Indicator</th><th>Strength</th><th>Price</th><th>Action</th></tr></thead>
                 <tbody>
                     ${data.signals.map(s => `
-                        <tr>
+                        <tr data-live-symbol="${s.symbol}">
                             <td><strong>${s.name || s.symbol.replace('.NS', '')}</strong></td>
                             <td><span class="badge ${s.type === 'BUY' ? 'positive' : s.type === 'SELL' ? 'negative' : ''}">${s.type}</span></td>
                             <td>${s.indicator || '-'}</td>
                             <td>${s.strength || '-'}</td>
-                            <td>₹${s.price}</td>
+                            <td data-live-price>${fmtPrice(s.price)}</td>
                             <td><button class="btn-primary" onclick="selectStock('${s.symbol}'); showTab('chart')">View</button></td>
                         </tr>
                     `).join('')}
@@ -1777,6 +1786,9 @@ async function loadSignals() {
             </table>
         `;
     }
+
+    refreshLiveSubscriptions();
+    applyLiveDomQuotes();
 }
 
 // Sectors
@@ -1854,10 +1866,10 @@ function displayScreenerResults(data) {
                     <thead><tr><th>Stock</th><th>Price</th><th>Change</th><th>RSI</th><th>MACD</th><th>Action</th></tr></thead>
                     <tbody>
                         ${data.results.map(s => `
-                            <tr>
+                            <tr data-live-symbol="${s.symbol}">
                                 <td><strong>${s.name}</strong></td>
-                            <td>${fmtPrice(s.price)}</td>
-                                <td class="${s.changePercent >= 0 ? 'positive' : 'negative'}">${fmtPct(s.changePercent)}</td>
+                            <td data-live-price>${fmtPrice(s.price)}</td>
+                                <td class="${s.changePercent >= 0 ? 'positive' : 'negative'}" data-live-change-pct>${fmtPct(s.changePercent)}</td>
                                 <td>${s.rsi?.toFixed(2) || '-'}</td>
                                 <td>${s.macd?.toFixed(2) || '-'}</td>
                                 <td><button class="btn-primary" onclick="selectStock('${s.symbol}'); showTab('chart')">View</button></td>
@@ -1870,6 +1882,9 @@ function displayScreenerResults(data) {
     } else {
         container.innerHTML = '<div class="card"><p class="placeholder">No stocks match your criteria</p></div>';
     }
+
+    refreshLiveSubscriptions();
+    applyLiveDomQuotes();
 }
 
 // Compare
@@ -2015,14 +2030,15 @@ async function loadPortfolio() {
     if (data.holdings && data.holdings.length > 0) {
         container.innerHTML = `
             <table>
-                <thead><tr><th>Symbol</th><th>Qty</th><th>Buy Price</th><th>P&L</th><th>Action</th></tr></thead>
+                <thead><tr><th>Symbol</th><th>Qty</th><th>Buy Price</th><th>LTP</th><th>P&L</th><th>Action</th></tr></thead>
                 <tbody>
                     ${data.holdings.map(h => `
-                        <tr>
+                        <tr data-live-symbol="${h.symbol}" data-live-qty="${h.quantity}" data-live-buy="${h.buyPrice}">
                             <td><strong>${h.symbol.replace('.NS', '')}</strong></td>
                             <td>${h.quantity}</td>
                             <td>₹${h.buyPrice}</td>
-                            <td class="${h.pnl >= 0 ? 'positive' : 'negative'}">${h.pnl >= 0 ? '+' : ''}₹${h.pnl?.toFixed(2) || '0'}</td>
+                            <td data-live-price>${fmtPrice(h.currentPrice || h.buyPrice)}</td>
+                            <td class="${(h.pnl || 0) >= 0 ? 'positive' : 'negative'}" data-live-pnl>${(h.pnl || 0) >= 0 ? '+' : '-'}₹${Math.abs(h.pnl || 0).toFixed(2)} (${(h.pnlPercent || 0) >= 0 ? '+' : ''}${(h.pnlPercent || 0).toFixed(2)}%)</td>
                             <td><button class="btn-danger" onclick="removePortfolio('${h.symbol}')">Remove</button></td>
                         </tr>
                     `).join('')}
@@ -2032,6 +2048,9 @@ async function loadPortfolio() {
     } else {
         container.innerHTML = '<p class="placeholder">No holdings yet</p>';
     }
+
+    refreshLiveSubscriptions();
+    applyLiveDomQuotes();
 }
 
 async function addPortfolio() {
@@ -2065,10 +2084,10 @@ async function loadWatchlist() {
                 <thead><tr><th>Symbol</th><th>Price</th><th>Change</th><th>Action</th></tr></thead>
                 <tbody>
                     ${data.watchlist.map(w => `
-                        <tr>
+                        <tr data-live-symbol="${w.symbol}">
                             <td><strong>${w.symbol.replace('.NS', '')}</strong></td>
-                            <td>${fmtPrice(w.price)}</td>
-                            <td class="${(w.changePercent || 0) >= 0 ? 'positive' : 'negative'}">${fmtPct(w.changePercent || 0)}</td>
+                            <td data-live-price>${fmtPrice(w.price)}</td>
+                            <td class="${(w.changePercent || 0) >= 0 ? 'positive' : 'negative'}" data-live-change-pct>${fmtPct(w.changePercent || 0)}</td>
                             <td>
                                 <button class="btn-primary" onclick="selectStock('${w.symbol}'); showTab('chart')">View</button>
                                 <button class="btn-danger" onclick="removeWatchlist('${w.symbol}')">Remove</button>
@@ -2081,6 +2100,9 @@ async function loadWatchlist() {
     } else {
         container.innerHTML = '<p class="placeholder">No stocks in watchlist</p>';
     }
+
+    refreshLiveSubscriptions();
+    applyLiveDomQuotes();
 }
 
 async function addToWatchlist() {
@@ -4751,21 +4773,83 @@ let ws = null;
 let wsReconnectAttempts = 0;
 const MAX_WS_RECONNECT = 5;
 const WS_INDEX_SYMBOLS = ['^NSEI', '^BSESN', '^NSEBANK', '^CNXIT', '^NSEMDCP50'];
+const WS_MAX_SYMBOLS = 500;
 
-// Send the full subscription (indices + currently open chart symbol).
+// Latest quote per symbol, shared by every page/table.
+const liveQuoteCache = new Map();
+
+// Symbols rendered on the current DOM (market cards, watchlist, tables, ...).
+let liveDomSymbols = new Set();
+let lastWsSubscriptionKey = '';
+
+function getLiveQuote(symbol) {
+    return liveQuoteCache.get(normalizeSymbol(symbol));
+}
+
+function cacheLiveQuotes(prices) {
+    Object.entries(prices || {}).forEach(([symbol, quote]) => {
+        const price = Number(quote && quote.price);
+        if (!Number.isFinite(price) || price <= 0) return;
+        liveQuoteCache.set(normalizeSymbol(symbol), {
+            price: price,
+            change: Number(quote.change) || 0,
+            changePercent: Number(quote.changePercent) || 0
+        });
+    });
+}
+
+function collectLiveDomSymbols() {
+    const ordered = new Set();
+    const addFrom = (root) => {
+        if (!root) return;
+        root.querySelectorAll('[data-live-symbol]').forEach(el => {
+            const symbol = normalizeSymbol(el.getAttribute('data-live-symbol'));
+            if (symbol) ordered.add(symbol);
+        });
+    };
+
+    // Prioritise the visible tab, then keep remaining rendered tabs live too.
+    const activeTab = document.querySelector('.tab-content.active');
+    addFrom(activeTab);
+    document.querySelectorAll('.tab-content').forEach(tab => {
+        if (tab !== activeTab) addFrom(tab);
+    });
+    return ordered;
+}
+
+function buildWsSymbolList() {
+    const symbols = new Set(WS_INDEX_SYMBOLS);
+    chartWsSymbols.forEach(s => symbols.add(normalizeSymbol(s)));
+    liveDomSymbols.forEach(s => symbols.add(normalizeSymbol(s)));
+    return Array.from(symbols).filter(Boolean).slice(0, WS_MAX_SYMBOLS);
+}
+
+// Send the full subscription (indices + chart + everything rendered on-page).
 // Returns true when the socket is open and the message was sent.
-function sendWsSubscription() {
+function sendWsSubscription(force = false) {
     if (!ws || ws.readyState !== WebSocket.OPEN) return false;
 
-    const symbols = new Set(WS_INDEX_SYMBOLS);
-    chartWsSymbols.forEach(s => symbols.add(s));
+    const symbols = buildWsSymbolList();
+    const key = symbols.join('|');
+    if (!force && key === lastWsSubscriptionKey) return true;
 
-    ws.send(JSON.stringify({ symbols: Array.from(symbols) }));
-    console.log('[WS] Subscribed to symbols:', Array.from(symbols));
+    lastWsSubscriptionKey = key;
+    ws.send(JSON.stringify({ symbols: symbols }));
+    console.log('[WS] Subscribed to', symbols.length, 'symbols:', symbols);
     return true;
 }
 
+function refreshLiveSubscriptions() {
+    liveDomSymbols = collectLiveDomSymbols();
+    sendWsSubscription();
+}
+
 function connectWebSocket() {
+    // Don't open a second socket if one is already open/connecting.
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        return;
+    }
+
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${wsProtocol}//${window.location.host}/ws/live-prices`;
     ws = new WebSocket(wsUrl);
@@ -4774,7 +4858,8 @@ function connectWebSocket() {
         console.log('[WS] Connected to live prices');
         wsReconnectAttempts = 0;
         updateConnectionStatus('connected');
-        sendWsSubscription();
+        lastWsSubscriptionKey = '';
+        sendWsSubscription(true);
         if (chartWsSymbols.size > 0) setChartWsStatus('connecting');
     };
 
@@ -4782,13 +4867,19 @@ function connectWebSocket() {
         try {
             const data = JSON.parse(event.data);
             if (data.prices) {
+                cacheLiveQuotes(data.prices);
                 updateMarketOverviewLive(data.prices);
+                updateMarketPulseFromLiveQuotes();
+
                 // Also update chart if it's showing this symbol
                 Object.entries(data.prices).forEach(([symbol, q]) => {
                     if (chartWsSymbols.has(symbol)) {
                         updateChartLivePrice(symbol, q.price, q.change, q.changePercent);
                     }
                 });
+
+                // Refresh every table/card rendered with data-live-* hooks
+                applyLiveDomQuotes();
             }
         } catch (e) {
             console.error('[WS] Parse error:', e);
@@ -4799,6 +4890,7 @@ function connectWebSocket() {
         console.log('[WS] Disconnected');
         updateConnectionStatus('disconnected');
         setChartWsStatus('offline');
+        lastWsSubscriptionKey = '';
         if (wsReconnectAttempts < MAX_WS_RECONNECT) {
             wsReconnectAttempts++;
             const delay = 3000 * wsReconnectAttempts;
@@ -4850,7 +4942,8 @@ function updateMarketOverviewLive(prices) {
         if (changeEl) {
             const sign = priceData.change >= 0 ? '+' : '';
             changeEl.textContent = `${sign}${Number(priceData.change).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${sign}${priceData.changePercent}%)`;
-            changeEl.className = priceData.change >= 0 ? 'positive' : 'negative';
+            changeEl.classList.toggle('positive', priceData.change >= 0);
+            changeEl.classList.toggle('negative', priceData.change < 0);
         }
     }
 
@@ -4864,6 +4957,59 @@ function updateMarketOverviewLive(prices) {
             livePriceEl.className = 'price-badge ' + (priceData.change >= 0 ? 'positive' : 'negative');
         }
     }
+}
+
+// Apply cached WebSocket quotes to every element marked with data-live-*.
+// Markup convention:
+//   data-live-symbol="TCS.NS" on the card/row container
+//   data-live-price / data-live-change / data-live-change-pct inside it
+//   data-live-pnl + data-live-qty + data-live-buy for holdings
+function applyLiveDomQuotes(root = document) {
+    root.querySelectorAll('[data-live-symbol]').forEach(container => {
+        const quote = getLiveQuote(container.getAttribute('data-live-symbol'));
+        if (!quote) return;
+
+        const priceEl = container.querySelector('[data-live-price]');
+        if (priceEl) {
+            const oldPrice = parseFloat((priceEl.textContent || '').replace(/[₹,%]/g, '').trim());
+            const newText = fmtPrice(quote.price);
+            if (priceEl.textContent !== newText) {
+                priceEl.textContent = newText;
+                if (Number.isFinite(oldPrice) && oldPrice > 0 && quote.price !== oldPrice) {
+                    flashElement(priceEl, quote.price > oldPrice ? 'flash-green' : 'flash-red');
+                }
+            }
+        }
+
+        const changeEl = container.querySelector('[data-live-change]');
+        if (changeEl) {
+            const sign = quote.change >= 0 ? '+' : '';
+            changeEl.textContent = `${sign}${Number(quote.change).toFixed(2)} (${sign}${Number(quote.changePercent).toFixed(2)}%)`;
+            changeEl.classList.toggle('positive', quote.change >= 0);
+            changeEl.classList.toggle('negative', quote.change < 0);
+        }
+
+        const pctEl = container.querySelector('[data-live-change-pct]');
+        if (pctEl) {
+            const sign = quote.changePercent >= 0 ? '+' : '';
+            pctEl.textContent = `${sign}${Number(quote.changePercent).toFixed(2)}%`;
+            pctEl.classList.toggle('positive', quote.changePercent >= 0);
+            pctEl.classList.toggle('negative', quote.changePercent < 0);
+        }
+
+        const pnlEl = container.querySelector('[data-live-pnl]');
+        if (pnlEl) {
+            const qty = parseFloat(container.getAttribute('data-live-qty'));
+            const buy = parseFloat(container.getAttribute('data-live-buy'));
+            if (Number.isFinite(qty) && Number.isFinite(buy) && buy > 0) {
+                const pnl = (quote.price - buy) * qty;
+                const pnlPct = ((quote.price - buy) / buy) * 100;
+                pnlEl.textContent = `${pnl >= 0 ? '+' : '-'}₹${Math.abs(pnl).toFixed(2)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%)`;
+                pnlEl.classList.toggle('positive', pnl >= 0);
+                pnlEl.classList.toggle('negative', pnl < 0);
+            }
+        }
+    });
 }
 
 function flashElement(el, className) {
@@ -4908,25 +5054,51 @@ async function updateMarketStatus() {
 }
 
 // Market Pulse
+function applyMarketPulse(score, label, color) {
+    const pulseValue = document.getElementById('pulseValue');
+    const gaugeScore = document.getElementById('gaugeScore');
+    const gaugeText = document.getElementById('gaugeText');
+    const needle = document.getElementById('gaugeNeedle');
+
+    if (pulseValue) pulseValue.textContent = `${score} - ${label}`;
+    if (gaugeScore) gaugeScore.textContent = score;
+    if (gaugeText) {
+        gaugeText.textContent = label;
+        gaugeText.style.color = color || '#ffaa00';
+    }
+    if (needle) {
+        // Rotate needle: -90deg (bearish) to +90deg (bullish)
+        const rotation = (score / 100) * 90;
+        needle.style.transform = `rotate(${rotation}deg)`;
+    }
+}
+
+function updateMarketPulseFromLiveQuotes() {
+    const changes = WS_INDEX_SYMBOLS
+        .map(symbol => getLiveQuote(symbol))
+        .filter(Boolean)
+        .map(quote => quote.changePercent);
+
+    if (changes.length === 0) return;
+
+    const avgChange = changes.reduce((sum, value) => sum + value, 0) / changes.length;
+    const score = Math.round(Math.min(100, Math.max(0, 50 + avgChange * 25)));
+    let label = 'Neutral';
+    let color = '#f59e0b';
+    if (score >= 65) {
+        label = 'Bullish';
+        color = '#10b981';
+    } else if (score <= 35) {
+        label = 'Bearish';
+        color = '#ef4444';
+    }
+    applyMarketPulse(score, label, color);
+}
+
 async function updateMarketPulse() {
     try {
         const data = await api('/api/market/pulse');
-        const score = document.getElementById('pulseValue');
-        const gaugeScore = document.getElementById('gaugeScore');
-        const gaugeText = document.getElementById('gaugeText');
-        const needle = document.getElementById('gaugeNeedle');
-
-        if (score) score.textContent = `${data.score} - ${data.label}`;
-        if (gaugeScore) gaugeScore.textContent = data.score;
-        if (gaugeText) {
-            gaugeText.textContent = data.label;
-            gaugeText.style.color = data.color || '#ffaa00';
-        }
-        if (needle) {
-            // Rotate needle: -90deg (bearish) to +90deg (bullish)
-            const rotation = (data.score / 100) * 90;
-            needle.style.transform = `rotate(${rotation}deg)`;
-        }
+        applyMarketPulse(data.score, data.label, data.color);
     } catch (e) {
         console.error('Market pulse error:', e);
     }
@@ -5094,13 +5266,13 @@ async function loadVolumeAlerts() {
         if (data.alerts && data.alerts.length > 0) {
             if (countBadge) countBadge.textContent = data.alerts.length;
             container.innerHTML = data.alerts.map(alert => `
-                <div class="volume-alert-item ${alert.signal.toLowerCase()}">
+                <div class="volume-alert-item ${alert.signal.toLowerCase()}" data-live-symbol="${normalizeSymbol(alert.symbol)}">
                     <div class="alert-left">
                         <span class="alert-symbol" onclick="selectStock('${alert.symbol}.NS'); showTab('chart')" style="cursor:pointer">${alert.symbol}</span>
-                        <span class="alert-price">₹${alert.price}</span>
+                        <span class="alert-price" data-live-price>₹${alert.price}</span>
                     </div>
                     <div class="alert-center">
-                        <span class="alert-change ${alert.change >= 0 ? 'positive' : 'negative'}">
+                        <span class="alert-change ${alert.change >= 0 ? 'positive' : 'negative'}" data-live-change-pct>
                             ${alert.change >= 0 ? '+' : ''}${alert.change}%
                         </span>
                     </div>
@@ -5114,6 +5286,9 @@ async function loadVolumeAlerts() {
             container.innerHTML = '<div class="no-data">No unusual volume detected</div>';
             if (countBadge) countBadge.textContent = '0';
         }
+
+        refreshLiveSubscriptions();
+        applyLiveDomQuotes();
     } catch (error) {
         console.error('Error loading volume alerts:', error);
     }

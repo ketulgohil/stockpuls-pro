@@ -4329,6 +4329,17 @@ body { --chart-bg: var(--bg-card); }
     padding: 16px 24px 24px 24px;
 }
 
+/* The chart layout sets display:flex, which otherwise overrides the
+   .tab-content display:none and leaves the chart visible on every tab. */
+#chart.tab-content:not(.active) {
+    display: none;
+}
+
+#chart.tab-content.active {
+    display: flex;
+    flex-direction: column;
+}
+
 .chart-layout {
     display: flex;
     flex-direction: column;
@@ -4457,10 +4468,12 @@ body { --chart-bg: var(--bg-card); }
 }
 
 .watchlist-item-info .price {
-    font-size: 11px;
+    font-size: 12px;
+    font-weight: 500;
     font-family: 'JetBrains Mono', monospace;
-    color: var(--text-muted);
-    margin-top: 2px;
+    color: var(--text-primary);
+    margin-top: 3px;
+    letter-spacing: 0.2px;
 }
 
 .watchlist-item-change {

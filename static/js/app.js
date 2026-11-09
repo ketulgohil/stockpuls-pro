@@ -2945,6 +2945,8 @@ function startAutoRefreshGainersLosers() {
     }
     // No setInterval needed; WebSocket ticks every ~3s will
     // refresh the DOM quotes via the existing applyLiveDomQuotes() path.
+    // The old 60s interval is removed — gainers/losers now update live
+    // automatically through the shared liveQuoteCache.
 }
 
 // Keyboard Shortcuts
@@ -5308,21 +5310,16 @@ async function loadVolumeAlerts() {
 }
 
 // ===== AUTO-REFRESH GAINERS/LOSERS =====
-let gainersLosersInterval = null;
-
 function startAutoRefreshGainersLosers() {
-    // Refresh every 60 seconds
-    gainersLosersInterval = setInterval(async () => {
-        const activeTab = document.querySelector('.nav-item.active');
-        if (activeTab) {
-            const tabName = activeTab.getAttribute('data-tab');
-            if (tabName === 'dashboard') {
-                await loadDashboardGainersLosers();
-            } else if (tabName === 'market') {
-                await loadMarket();
-            }
-        }
-    }, 60000);
+    // Ensure the WS socket is connected and subscribed so that
+    // liveQuoteCache gets populated with top-movers symbols.
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        connectWebSocket();
+    }
+    // No setInterval needed — WebSocket ticks every ~3s will
+    // refresh the DOM quotes via the existing applyLiveDomQuotes() path.
+    // The old 60s interval is removed — gainers/losers now update live
+    // automatically through the shared liveQuoteCache.
 }
 
 // ===== PORTFOLIO LIVE P&L TICKER =====

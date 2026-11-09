@@ -1,8 +1,9 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Depends
 from typing import List, Optional
 from core.sentinel.engine import sentinel_engine
 from core.sentinel.dispatcher import dispatcher
 from core.sentinel.types import SentinelConfig, SentinelAlert
+from core.auth import verify_api_key
 
 router = APIRouter(prefix="/api/sentinel", tags=["sentinel"])
 
@@ -50,7 +51,7 @@ def analyze_stock_sentinel(symbol: str):
     ).model_dump()
 
 @router.post("/routine/{routine_type}")
-async def trigger_routine(routine_type: str):
+async def trigger_routine(routine_type: str, auth: bool = Depends(verify_api_key)):
     if routine_type not in ("PRE_MARKET", "MIDDAY_PULSE", "POST_MARKET_WRAP"):
         raise HTTPException(status_code=400, detail="Invalid routine type")
     await sentinel_engine.run_routine(routine_type)

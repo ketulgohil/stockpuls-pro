@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import json
@@ -9,8 +9,9 @@ from api import (
     news, backtest, market, compare, patterns,
     correlation, breadth, fundamentals, analysis, alerts, export, ai, gemini, advanced, more, features, gold, analytics,
     mutual_funds, currency, block_deals, quarterly_results, screener_strategies, downstox, sentinel, upstox_trading,
-    exit, budget, risk, scanner, entry, timemachine, analyst, alerts, broker, institutional, news, dashboard
+    exit, budget, risk, scanner, entry, timemachine, analyst, alerts, broker, institutional, news, dashboard, auth
 )
+from core.auth import verify_api_key
 import inngest.fast_api
 from core.workflows.inngest_client import inngest_client
 from core.workflows.functions import inngest_functions
@@ -76,6 +77,7 @@ app.include_router(screener_strategies.router)
 app.include_router(downstox.router)
 app.include_router(sentinel.router)
 app.include_router(upstox_trading.router)
+app.include_router(auth.router)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -110,39 +112,71 @@ class ConnectionManager:
 ws_manager = ConnectionManager()
 
 
+LIVE_PRICE_POLL_SECONDS = 3
+DEFAULT_LIVE_SYMBOLS = ["^NSEI", "^NSEBANK", "^BSESN"]
+
+
+async def _fetch_live_prices(symbols):
+    """Fetch legacy-shaped quotes off the event loop."""
+    prices_raw = await asyncio.to_thread(upstox_data.get_quotes, list(symbols))
+    return {
+        sym: {
+            "price": q["price"],
+            "change": q["change"],
+            "changePercent": q["changePercent"],
+        }
+        for sym, q in prices_raw.items()
+    }
+
+
 @app.websocket("/ws/live-prices")
 async def websocket_live_prices(websocket: WebSocket):
     await ws_manager.connect(websocket)
+    symbols = list(DEFAULT_LIVE_SYMBOLS)
+
+    async def push_prices():
+        try:
+            prices = await _fetch_live_prices(symbols)
+        except Exception:
+            prices = {}
+        await websocket.send_text(json.dumps({
+            "prices": prices,
+            "timestamp": str(datetime.now())
+        }))
+
     try:
-        # Receive symbols from client
-        data = await websocket.receive_text()
-        params = json.loads(data)
-        symbols = params.get("symbols", [])
+        # Wait briefly for the client's initial subscription, but don't block
+        # the first update if it doesn't send one.
+        try:
+            data = await asyncio.wait_for(websocket.receive_text(), timeout=2.0)
+            params = json.loads(data)
+            incoming = params.get("symbols") or []
+            if incoming:
+                symbols = incoming
+        except asyncio.TimeoutError:
+            pass
 
-        if not symbols:
-            symbols = ["^NSEI", "^NSEBANK", "^BSESN"]  # Default: NIFTY, BANKNIFTY, SENSEX
+        await push_prices()
 
-        # Start sending updates
         while True:
+            # Listen for subscription changes while waiting for the next tick.
             try:
-                prices_raw = upstox_data.get_quotes(symbols)
-                prices = {
-                    sym: {
-                        "price": q["price"],
-                        "change": q["change"],
-                        "changePercent": q["changePercent"],
-                    }
-                    for sym, q in prices_raw.items()
-                }
+                data = await asyncio.wait_for(
+                    websocket.receive_text(), timeout=LIVE_PRICE_POLL_SECONDS
+                )
+            except asyncio.TimeoutError:
+                await push_prices()
+                continue
 
-                await websocket.send_text(json.dumps({
-                    "prices": prices,
-                    "timestamp": str(datetime.now())
-                }))
-            except Exception:
-                break
+            try:
+                params = json.loads(data)
+            except (json.JSONDecodeError, TypeError):
+                continue
 
-            await asyncio.sleep(10)
+            incoming = params.get("symbols") or []
+            if incoming:
+                symbols = incoming
+                await push_prices()
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
     except Exception:
@@ -401,7 +435,7 @@ async def get_volume_alerts():
 
 
 @app.get("/api/portfolio/live-pnl")
-async def get_portfolio_live_pnl():
+async def get_portfolio_live_pnl(auth: bool = Depends(verify_api_key)):
     """Get live P&L for portfolio holdings"""
     try:
         from core.portfolio import get_portfolio

@@ -1,7 +1,7 @@
 let chart = null;
 let candleSeries = null;
 let volumeSeries = null;
-let currentSymbol = 'RELIANCE.NS';
+let currentSymbol = 'RELIANCE';
 let currentTimeframe = '1d';
 let liveInterval = null;
 
@@ -37,13 +37,46 @@ function fmtChg(val) {
     return (val >= 0 ? '+' : '') + Number(val).toFixed(2);
 }
 
-// API Helper
+// Symbol normalization - users can type RELIANCE, reliance, or RELIANCE.NS
+// Backend strips .NS before calling Upstox, so we normalize internally
+// Symbol alias map for renamed companies (e.g., ZOMATO → ETERNAL.NS)
+const SYMBOL_ALIAS_MAP = {
+    'ZOMATO': 'ETERNAL.NS',
+    'ZOMATO.NS': 'ETERNAL.NS',
+};
+function normalizeSymbol(sym) {
+    const s = (sym || '').trim().toUpperCase();
+    if (!s) return s;
+    // Check alias map first
+    if (SYMBOL_ALIAS_MAP[s]) return SYMBOL_ALIAS_MAP[s];
+    if (s.includes('.') || s.startsWith('^')) return s;
+    return s + '.NS';
+}
+function displaySymbol(sym) {
+    return (sym || '').replace('.NS', '').replace('.BO', '');
+}
+
+// API Helper - sends API key from localStorage on every request
 async function api(url, options = {}) {
+    const apiKey = localStorage.getItem('app_api_key') || '';
+    const headers = {
+        'Content-Type': 'application/json',
+        ...(options.headers || {}),
+    };
+    if (apiKey) {
+        headers['X-API-Key'] = apiKey;
+    }
     try {
         const res = await fetch(url, {
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             ...options
         });
+        // Handle authentication required
+        if (res.status === 401) {
+            const data = await res.json().catch(() => ({}));
+            showAuthRequired(data.detail || 'Authentication required');
+            return { error: 'auth_required', status: 401, detail: data.detail };
+        }
         return await res.json();
     } catch (err) {
         console.error('API Error:', err);
@@ -58,6 +91,104 @@ function showLoading() {
 
 function hideLoading() {
     document.getElementById('loading').classList.add('hidden');
+}
+
+// Show authentication required toast
+function showAuthRequired(message) {
+    const container = document.getElementById('toastContainer');
+    if (!container) return;
+    const toast = document.createElement('div');
+    toast.className = 'toast toast-error';
+    toast.innerHTML = `
+        <strong>🔐 Authentication Required</strong><br>
+        ${message}<br>
+        <button class="btn-sm" onclick="openAuthModal()" style="margin-top:8px;">Enter API Key</button>
+    `;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 8000);
+}
+
+// Open the API key settings modal
+function openAuthModal() {
+    const modal = document.getElementById('authModal');
+    if (modal) {
+        modal.style.display = 'flex';
+        document.getElementById('authApiKey').value = localStorage.getItem('app_api_key') || '';
+    }
+}
+
+// Close the API key settings modal
+function closeAuthModal() {
+    const modal = document.getElementById('authModal');
+    if (modal) modal.style.display = 'none';
+}
+
+// Save the API key
+function saveAuthApiKey() {
+    const key = document.getElementById('authApiKey').value.trim();
+    if (!key) {
+        showAuthRequired('API key cannot be empty');
+        return;
+    }
+    localStorage.setItem('app_api_key', key);
+    closeAuthModal();
+    // Show confirmation toast
+    const container = document.getElementById('toastContainer');
+    if (container) {
+        const toast = document.createElement('div');
+        toast.className = 'toast toast-success';
+        toast.textContent = 'API key saved. Protected endpoints will now work.';
+        container.appendChild(toast);
+        setTimeout(() => toast.remove(), 4000);
+    }
+}
+
+// Check auth status on load and show setup prompt if needed
+async function checkAuthStatus() {
+    const indicator = document.getElementById('authIndicator');
+    try {
+        const res = await fetch('/api/auth/status');
+        const data = await res.json();
+        if (indicator) {
+            if (data.configured) {
+                indicator.textContent = '🔐 Key Configured';
+                indicator.className = 'auth-indicator has-key';
+            } else {
+                indicator.textContent = '🔑 Setup Required';
+                indicator.className = 'auth-indicator no-key';
+                indicator.onclick = openAuthModal;
+            }
+        }
+        if (!data.configured) {
+            return;
+        }
+        // Key is configured server-side; if client has no key, show prompt
+        if (!localStorage.getItem('app_api_key')) {
+            const container = document.getElementById('toastContainer');
+            if (container) {
+                const toast = document.createElement('div');
+                toast.className = 'toast toast-info';
+                toast.innerHTML = `
+                    <strong>🔐 API Key Required</strong><br>
+                    Some protected endpoints need an API key.<br>
+                    <button class="btn-sm" onclick="openAuthModal()" style="margin-top:8px;">Enter Key</button>
+                `;
+                container.appendChild(toast);
+                setTimeout(() => toast.remove(), 8000);
+            }
+        } else if (indicator) {
+            indicator.textContent = '🔐 Key Set';
+            indicator.className = 'auth-indicator has-key';
+            indicator.onclick = openAuthModal;
+        }
+    } catch (e) {
+        if (indicator) {
+            indicator.textContent = '🔐 Auth';
+            indicator.className = 'auth-indicator no-key';
+            indicator.onclick = openAuthModal;
+        }
+        // Ignore - auth endpoint may not exist yet
+    }
 }
 
 // Tab Navigation
@@ -304,8 +435,652 @@ function changeTimeframe(tf, btn) {
 }
 
 // ============================================================================
-// INDIAN DAY TRADER CHART ENHANCEMENTS
+// DEDICATED LIVE CHART VIEW (TradingView-style)
 // ============================================================================
+
+// Dedicated chart variables
+let chartChart = null;
+let candleSeriesChart = null;
+let volumeSeriesChart = null;
+let chartLoadingLock = false;
+let emaSeriesChart = {};
+let vwapSeriesChart = {};
+let oscChartChart = null;
+let oscSeriesChart = {};
+let pivotLinesChart = [];
+let lineBreakoutChart = null;
+let lineTargetChart = null;
+let lineStopLossChart = null;
+let orbLevelsChart = null;
+let barTimerIntervalChart = null;
+let drawingToolChart = null; // 'horizontal', 'trend', 'pricealert', or null
+let drawingStartPointChart = null;
+let drawingLinesChart = [];
+let chartWsSymbols = new Set();
+
+// Initialize dedicated chart
+function initChartChart() {
+    const container = document.getElementById('chartContainerChart');
+    if (!container) return;
+
+    chartChart = LightweightCharts.createChart(container, {
+        width: container.clientWidth,
+        height: container.clientHeight,
+        layout: {
+            background: { color: '#0a0a0f' },
+            textColor: '#8888a0',
+            fontSize: 11,
+            fontFamily: 'JetBrains Mono, monospace'
+        },
+        grid: {
+            vertLines: { color: 'rgba(255,255,255,0.04)' },
+            horzLines: { color: 'rgba(255,255,255,0.04)' }
+        },
+        crosshair: {
+            mode: LightweightCharts.CrosshairMode.Normal,
+            vertLine: { color: '#3b82f6', width: 1, style: 2 },
+            horzLine: { color: '#3b82f6', width: 1, style: 2 }
+        },
+        rightPriceScale: {
+            borderColor: 'rgba(255,255,255,0.06)',
+            scaleMargins: { top: 0.1, bottom: 0.2 }
+        },
+        timeScale: {
+            borderColor: 'rgba(255,255,255,0.06)',
+            timeVisible: true,
+            secondsVisible: false
+        }
+    });
+
+    candleSeriesChart = chartChart.addCandlestickSeries({
+        upColor: '#10b981',
+        downColor: '#ef4444',
+        borderDownColor: '#ef4444',
+        borderUpColor: '#10b981',
+        wickDownColor: '#ef4444',
+        wickUpColor: '#10b981',
+        lastValueVisible: false,
+        priceLineVisible: false
+    });
+
+    volumeSeriesChart = chartChart.addHistogramSeries({
+        priceFormat: { type: 'volume' },
+        priceScaleId: 'volume',
+        lastValueVisible: false,
+        priceLineVisible: false
+    });
+    chartChart.priceScale('volume').applyOptions({
+        scaleMargins: { top: 0.8, bottom: 0 }
+    });
+
+    // EMA series
+    const emaConfigsChart = [
+        { key: 'ema9', length: 9, color: '#38bdf8', width: 1 },
+        { key: 'ema21', length: 21, color: '#3b82f6', width: 2 },
+        { key: 'ema50', length: 50, color: '#f59e0b', width: 2 },
+        { key: 'ema200', length: 200, color: '#a855f7', width: 2 }
+    ];
+    emaConfigsChart.forEach(({ key, color, width }) => {
+        emaSeriesChart[key] = chartChart.addLineSeries({
+            color: color,
+            lineWidth: width,
+            title: '',
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false
+        });
+    });
+
+    // VWAP series
+    const vwapConfigsChart = [
+        { key: 'vwap', color: '#eab308', width: 2, style: 0 },
+        { key: 'upper1', color: 'rgba(234,179,8,0.45)', width: 1, style: 1 },
+        { key: 'lower1', color: 'rgba(234,179,8,0.45)', width: 1, style: 1 },
+        { key: 'upper2', color: 'rgba(239,68,68,0.35)', width: 1, style: 2 },
+        { key: 'lower2', color: 'rgba(16,185,129,0.35)', width: 1, style: 2 }
+    ];
+    vwapConfigsChart.forEach(({ key, color, width, style }) => {
+        vwapSeriesChart[key] = chartChart.addLineSeries({
+            color: color,
+            lineWidth: width,
+            lineStyle: style,
+            title: '',
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false
+        });
+    });
+
+    // Resize handler
+    new ResizeObserver(() => {
+        if (chartChart && container) {
+            chartChart.resize(container.clientWidth, container.clientHeight);
+        }
+    }).observe(container);
+
+    // Initialize drawing event handlers
+    initChartDrawingEvents();
+}
+
+// Load chart data for dedicated view
+// Timeframe → period/interval mapping
+// period = how much historical data to fetch, interval = candle granularity
+const TIMEFRAME_CONFIG = {
+    '1d':   { period: '1y', interval: '1d' },   // 1 year of daily candles
+    '5d':   { period: '1y', interval: '1d' },   // 1 year of daily candles
+    '1mo':  { period: '2y', interval: '1mo' },  // 2 years of monthly candles
+    '3mo':  { period: '2y', interval: '1mo' },  // 2 years of monthly candles
+    '6mo':  { period: '2y', interval: '1mo' },  // 2 years of monthly candles
+    '1y':   { period: '5y', interval: '1mo' },  // 5 years of monthly candles
+    '5m':   { period: '1d', interval: '5m' },   // 1 day of 5-min candles
+    '15m':  { period: '1d', interval: '15m' },  // 1 day of 15-min candles
+    '30m':  { period: '1d', interval: '30m' },  // 1 day of 30-min candles
+    '1h':   { period: '1d', interval: '1h' },   // 1 day of 1-hour candles
+};
+
+async function loadChartChart() {
+    console.log('[loadChartChart] START', { chartLoadingLock });
+    // Prevent concurrent chart loads
+    if (chartLoadingLock) {
+        console.log('[loadChartChart] BLOCKED - lock held');
+        return;
+    }
+    chartLoadingLock = true;
+    console.log('[loadChartChart] LOCK acquired');
+
+    const loadBtn = document.querySelector('button[onclick="loadChartSymbolFromInput()"]');
+    if (loadBtn) {
+        loadBtn.disabled = true;
+        loadBtn.textContent = 'Loading…';
+    }
+
+    const rawSymbol = document.getElementById('chartSymbolInput')?.value?.trim()?.toUpperCase();
+    console.log('[loadChartChart] rawSymbol:', rawSymbol);
+    if (!rawSymbol) {
+        console.log('[loadChartChart] EMPTY symbol, releasing lock');
+        chartLoadingLock = false;
+        return;
+    }
+
+    const symbol = normalizeSymbol(rawSymbol);
+    const dispSym = displaySymbol(symbol);
+    const symInput = document.getElementById('chartSymbolInput');
+    if (symInput) symInput.value = symbol;
+
+    // Keep the global/topbar selection in sync with the loaded chart
+    currentSymbol = symbol;
+    localStorage.setItem('lastStock', symbol);
+    const topbarNameEl = document.getElementById('currentStockName');
+    if (topbarNameEl) topbarNameEl.textContent = dispSym;
+
+    const stockNameEl = document.getElementById('chartStockName');
+    if (stockNameEl) stockNameEl.textContent = dispSym;
+
+    const badgeEl = document.getElementById('chartSymbolBadge');
+    if (badgeEl) badgeEl.textContent = dispSym;
+    setChartWsStatus('connecting');
+
+    // Clear the previous symbol's LTP/price line while the new data loads
+    const chartPriceEl = document.getElementById('chartPrice');
+    if (chartPriceEl) chartPriceEl.textContent = 'Loading...';
+    if (chartLivePriceLineChart) {
+        try { candleSeriesChart.removePriceLine(chartLivePriceLineChart); } catch(e) {}
+        chartLivePriceLineChart = null;
+    }
+
+    // Show loading state
+    const loadingEl = document.getElementById('chartLoadingChart');
+    const containerEl = document.getElementById('chartContainerChart');
+    console.log('[loadChartChart] loadingEl:', loadingEl, 'containerEl:', containerEl);
+    if (loadingEl) loadingEl.style.display = 'flex';
+    if (containerEl) containerEl.style.display = 'block';
+
+    const tf = document.querySelector('#chart .tf-btn.active')?.dataset.tf || '1d';
+    const tfConfig = TIMEFRAME_CONFIG[tf] || TIMEFRAME_CONFIG['1d'];
+    console.log('[loadChartChart] timeframe:', tf, 'config:', tfConfig);
+
+    try {
+        const url = `/api/stocks/${symbol}/history?period=${tfConfig.period}&interval=${tfConfig.interval}`;
+        console.log('[loadChartChart] fetching:', url);
+        const data = await api(url);
+        console.log('[loadChartChart] response:', data);
+
+        if (data.error || !data.data || data.data.length === 0) {
+            if (loadingEl) loadingEl.style.display = 'none';
+            const msg = data.error ? data.error : 'No data available for ' + symbol;
+            let suggestion = '';
+            // If symbol not found, suggest search
+            if (data.error && data.error.includes('not found')) {
+                suggestion = '<p class="placeholder" style="font-size:11px; margin-top:4px;">Try searching for the stock in the search box or try a different symbol.</p>';
+            }
+            document.getElementById('chartContainerChart').innerHTML = '<p class="placeholder">' + msg + '</p>' + suggestion;
+            chartLoadingLock = false;
+            return;
+        }
+
+        const candles = data.data.map(d => ({
+            time: d.date,
+            open: d.open,
+            high: d.high,
+            low: d.low,
+            close: d.close,
+            volume: d.volume || 0
+        }));
+
+        // Fetch stock info and price using clean un-namespaced ticker if needed
+        try {
+            const rawTick = displaySymbol(symbol);
+            const info = await api(`/api/stocks/${rawTick}`);
+            const price = info.currentPrice || info.price || (candles.length > 0 ? candles[candles.length - 1].close : '-');
+            const priceEl = document.getElementById('chartPrice');
+            if (priceEl) priceEl.textContent = fmtPrice(price);
+        } catch(e) {
+            if (candles.length > 0) {
+                const priceEl = document.getElementById('chartPrice');
+                if (priceEl) priceEl.textContent = fmtPrice(candles[candles.length - 1].close);
+            }
+        }
+
+        const volumes = data.data.map(d => ({
+            time: d.date,
+            value: d.volume || 0,
+            color: d.close >= d.open ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'
+        }));
+
+        candleSeriesChart.setData(candles);
+        volumeSeriesChart.setData(volumes);
+        chartChart.timeScale().fitContent();
+
+        // Draw ORB levels for intraday
+        const isIntraday = ['5m', '15m', '30m', '1h'].includes(tf);
+        if (isIntraday) {
+            orbLevelsChart = computeOrbLevels(candles);
+            drawStrategyLinesChart(orbLevelsChart);
+            updateOrbBadgeChart(orbLevelsChart);
+            startBarTimerChart(tf);
+        } else {
+            clearStrategyLinesChart();
+            stopBarTimerChart();
+        }
+
+        // Indicators
+        updateEmaSeriesChart(candles);
+        if (isIntraday) updateVwapSeriesChart(candles);
+        else updatePivotLinesChart(candles);
+        updatePatternMarkersChart(candles);
+
+        // Subscribe to WebSocket for live updates
+        subscribeToChartSymbol(symbol);
+
+        // Hide loading state
+        if (loadingEl) loadingEl.style.display = 'none';
+
+    } catch (err) {
+        console.error('[loadChartChart] ERROR:', err);
+        if (loadingEl) loadingEl.style.display = 'none';
+        document.getElementById('chartContainerChart').innerHTML = '<p class="placeholder">Error loading chart: ' + err.message + '</p>';
+    } finally {
+        console.log('[loadChartChart] FINALLY - releasing lock');
+        chartLoadingLock = false;
+        const loadBtn = document.querySelector('button[onclick="loadChartSymbolFromInput()"]');
+        if (loadBtn) {
+            loadBtn.disabled = false;
+            loadBtn.textContent = 'Load';
+        }
+    }
+}
+
+// Live price line for the dedicated chart (handler lives below)
+let chartLivePriceLineChart = null;
+
+function setChartTimeframe(tf, btn) {
+    document.querySelectorAll('#chart .tf-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    loadChartChart();
+}
+
+function drawStrategyLinesChart(levels) {
+    if (!candleSeriesChart) return;
+    clearStrategyLinesChart();
+
+    if (!levels) return;
+
+    lineBreakoutChart = candleSeriesChart.createPriceLine({
+        price: levels.breakout,
+        color: '#3b82f6',
+        lineWidth: 2,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: 'ORB HIGH'
+    });
+
+    lineTargetChart = candleSeriesChart.createPriceLine({
+        price: levels.target,
+        color: '#10b981',
+        lineWidth: 2,
+        lineStyle: 2,
+        axisLabelVisible: false,
+        title: 'TARGET (1.5R)'
+    });
+
+    lineStopLossChart = candleSeriesChart.createPriceLine({
+        price: levels.stopLoss,
+        color: '#ef4444',
+        lineWidth: 2,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: 'STOP LOSS'
+    });
+}
+
+function clearStrategyLinesChart() {
+    if (lineBreakoutChart) { try { candleSeriesChart.removePriceLine(lineBreakoutChart); } catch(e) {} lineBreakoutChart = null; }
+    if (lineTargetChart) { try { candleSeriesChart.removePriceLine(lineTargetChart); } catch(e) {} lineTargetChart = null; }
+    if (lineStopLossChart) { try { candleSeriesChart.removePriceLine(lineStopLossChart); } catch(e) {} lineStopLossChart = null; }
+}
+
+function updateOrbBadgeChart(levels) {
+    if (!levels) return;
+    document.getElementById('stratBreakoutValChart').textContent = '₹' + levels.breakout.toFixed(2);
+    document.getElementById('stratStopValChart').textContent = '₹' + levels.stopLoss.toFixed(2);
+    document.getElementById('stratTargetValChart').textContent = '₹' + levels.target.toFixed(2);
+}
+
+function startBarTimerChart(timeframe) {
+    stopBarTimerChart();
+    const stepSec = { '1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600 }[timeframe] || 300;
+    const el = document.getElementById('chartBarTimerChart');
+    if (!el) return;
+
+    function update() {
+        const now = new Date();
+        const istTime = new Date(now.getTime() + (now.getTimezoneOffset() * 60000) + (5.5 * 3600000));
+        const totalSecToday = istTime.getHours() * 3600 + istTime.getMinutes() * 60 + istTime.getSeconds();
+        const sessionOpen = 9 * 3600 + 15 * 60;
+        let elapsed = totalSecToday - sessionOpen;
+        if (elapsed < 0) elapsed = 0;
+        const secsIntoCandle = elapsed % stepSec;
+        const secsRemaining = stepSec - secsIntoCandle;
+        const remM = Math.floor(secsRemaining / 60);
+        const remS = secsRemaining % 60;
+        el.textContent = String(remM).padStart(2, '0') + ':' + String(remS).padStart(2, '0');
+    }
+    update();
+    barTimerIntervalChart = setInterval(update, 1000);
+}
+
+function stopBarTimerChart() {
+    if (barTimerIntervalChart) {
+        clearInterval(barTimerIntervalChart);
+        barTimerIntervalChart = null;
+    }
+    const el = document.getElementById('chartBarTimerChart');
+    if (el) el.textContent = '--:--';
+}
+
+function updateEmaSeriesChart(candles) {
+    if (!window.Indicators || !window.Indicators.computeEma) return;
+    const emaConfigsChart = [
+        { key: 'ema9', length: 9 },
+        { key: 'ema21', length: 21 },
+        { key: 'ema50', length: 50 },
+        { key: 'ema200', length: 200 }
+    ];
+    emaConfigsChart.forEach(({ key, length }) => {
+        const emaData = window.Indicators.computeEma(candles, length);
+        if (emaSeriesChart[key]) {
+            emaSeriesChart[key].setData(emaData || []);
+        }
+    });
+}
+
+function updateVwapSeriesChart(candles) {
+    if (!window.Indicators || !window.Indicators.computeVwap) return;
+    const result = window.Indicators.computeVwap(candles);
+    if (!result) return;
+    const keys = ['vwap', 'upper1', 'lower1', 'upper2', 'lower2'];
+    keys.forEach(k => {
+        if (vwapSeriesChart[key]) vwapSeriesChart[key].setData(result[k] || []);
+    });
+}
+
+function updatePivotLinesChart(candles) {
+    if (!candleSeriesChart) return;
+    pivotLinesChart.forEach(l => { try { candleSeriesChart.removePriceLine(l); } catch(e) {} });
+    pivotLinesChart = [];
+
+    if (!window.Indicators || !window.Indicators.computePivots) return;
+
+    const toIstDateKey = (isoString) => {
+        const d = new Date(isoString + 'T00:00:00+05:30');
+        return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+    };
+    const datesMap = new Map();
+    candles.forEach(b => {
+        const k = toIstDateKey(b.time);
+        if (!datesMap.has(k)) datesMap.set(k, []);
+        datesMap.get(k).push(b);
+    });
+    const sortedDates = Array.from(datesMap.keys()).sort();
+    if (sortedDates.length < 2) return;
+    const prevKey = sortedDates[sortedDates.length - 2];
+    const prevBars = datesMap.get(prevKey);
+    if (!prevBars || !prevBars.length) return;
+
+    let prevHigh = -Infinity, prevLow = Infinity;
+    prevBars.forEach(b => { if (b.high > prevHigh) prevHigh = b.high; if (b.low < prevLow) prevLow = b.low; });
+    const prevClose = prevBars[prevBars.length - 1].close;
+
+    const pivots = window.Indicators.computePivots({ high: prevHigh, low: prevLow, close: prevClose });
+    if (!pivots) return;
+
+    const levels = [
+        { price: pivots.r4, color: '#f43f5e', title: 'CAM R4' },
+        { price: pivots.r3, color: '#fb923c', title: 'CAM R3' },
+        { price: pivots.s3, color: '#34d399', title: 'CAM S3' },
+        { price: pivots.s4, color: '#38bdf8', title: 'CAM S4' }
+    ];
+    levels.forEach(({ price, color, title }) => {
+        try {
+            const line = candleSeriesChart.createPriceLine({
+                price: price,
+                color: color,
+                lineWidth: 1,
+                lineStyle: 2,
+                axisLabelVisible: false,
+                title: title + ' ₹' + price.toFixed(2)
+            });
+            pivotLinesChart.push(line);
+        } catch(e) {}
+    });
+}
+
+function updatePatternMarkersChart(candles) {
+    // Keep chart clean and professional without marker clutter
+    try { candleSeriesChart.setMarkers([]); } catch(e) {}
+}
+
+// --- WebSocket for dedicated chart ---
+function subscribeToChartSymbol(symbol) {
+    const normalized = normalizeSymbol(symbol);
+    if (!normalized) return;
+
+    // The chart displays one symbol at a time, so replace the previous
+    // subscription instead of accumulating stale tickers.
+    chartWsSymbols.clear();
+    chartWsSymbols.add(normalized);
+
+    if (sendWsSubscription()) {
+        setChartWsStatus('connecting');
+    } else if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+        connectWebSocket();
+        setChartWsStatus('connecting');
+    }
+    // If the socket is still CONNECTING, onopen sends the current symbol list.
+}
+
+function setChartWsStatus(status) {
+    const statusEl = document.getElementById('chartWsStatus');
+    const dotEl = document.getElementById('chartWsDot');
+    const labels = {
+        live: 'Live',
+        connecting: 'Connecting...',
+        offline: 'Offline',
+        error: 'Feed Error'
+    };
+    if (statusEl) statusEl.textContent = labels[status] || 'Offline';
+    if (dotEl) dotEl.className = 'ws-dot' + (status === 'live' ? ' live' : '');
+}
+
+// Update chart with live price from WebSocket
+function updateChartLivePrice(symbol, price, change, changePercent) {
+    if (!candleSeriesChart) return;
+
+    const symbolInput = document.getElementById('chartSymbolInput');
+    if (!symbolInput) return; // Chart tab not initialized yet
+
+    const activeSymbol = normalizeSymbol(symbolInput.value.trim());
+    if (normalizeSymbol(symbol) !== activeSymbol) return;
+
+    const ltp = Number(price);
+    if (!Number.isFinite(ltp)) return;
+
+    const changeNum = Number(change) || 0;
+    const changePctNum = Number(changePercent) || 0;
+
+    setChartWsStatus('live');
+
+    // Update the LTP ticker in the chart header
+    const priceEl = document.getElementById('chartPrice');
+    if (priceEl) {
+        const oldPrice = parseFloat((priceEl.textContent || '').replace(/[₹,%]/g, '').trim());
+        priceEl.textContent = fmtPrice(ltp);
+        if (Number.isFinite(oldPrice) && oldPrice > 0 && ltp !== oldPrice) {
+            flashElement(priceEl, ltp > oldPrice ? 'flash-green' : 'flash-red');
+        }
+    }
+
+    // Update badge with price - preserve badge classes
+    const badge = document.getElementById('chartSymbolBadge');
+    if (badge) {
+        badge.textContent = displaySymbol(symbol) + ' ₹' + ltp.toFixed(2);
+        badge.className = 'badge symbol-badge ' + (changeNum >= 0 ? 'positive' : 'negative');
+        badge.setAttribute('aria-label', 'Current symbol: ' + displaySymbol(symbol) + ' at ₹' + ltp.toFixed(2));
+    }
+
+    // Update or create live price line
+    if (chartLivePriceLineChart) {
+        try { candleSeriesChart.removePriceLine(chartLivePriceLineChart); } catch(e) {}
+        chartLivePriceLineChart = null;
+    }
+
+    try {
+        chartLivePriceLineChart = candleSeriesChart.createPriceLine({
+            price: ltp,
+            color: changeNum >= 0 ? '#10b981' : '#ef4444',
+            lineWidth: 1,
+            lineStyle: 2,
+            axisLabelVisible: true,
+            title: 'Live: ₹' + ltp.toFixed(2) + ' (' + (changeNum >= 0 ? '+' : '') + changeNum.toFixed(2) + ', ' + (changePctNum >= 0 ? '+' : '') + changePctNum.toFixed(2) + '%)'
+        });
+    } catch(e) {}
+}
+
+// --- Drawing Tools ---
+function activateDrawingTool(tool) {
+    drawingToolChart = tool;
+    document.querySelectorAll('#chart .tool-btn').forEach(b => b.classList.remove('active-tool'));
+    if (tool) {
+        event.target.classList.add('active-tool');
+    }
+    document.getElementById('drawingToolIndicator').textContent = tool ? tool.charAt(0).toUpperCase() + tool.slice(1) : 'None';
+    drawingStartPointChart = null;
+}
+
+function clearDrawingTools() {
+    drawingLinesChart.forEach(l => {
+        try { candleSeriesChart.removePriceLine(l); } catch(e) {}
+    });
+    drawingLinesChart = [];
+    drawingToolChart = null;
+    drawingStartPointChart = null;
+    document.getElementById('drawingToolIndicator').textContent = 'None';
+    document.querySelectorAll('#chart .tool-btn').forEach(b => b.classList.remove('active-tool'));
+}
+
+// --- Drawing Interaction Handlers ---
+function initChartDrawingEvents() {
+    const container = document.getElementById('chartContainerChart');
+    if (!container || container.dataset.drawingInit) return;
+    container.dataset.drawingInit = 'true';
+
+    let trendStartPoint = null; // { time, price } for trend line drawing
+
+    container.addEventListener('mousedown', (e) => {
+        if (!candleSeriesChart || !chartChart) return;
+        if (!drawingToolChart) return;
+        if (e.target.closest('.tool-btn')) return;
+
+        const timeScale = chartChart.timeScale();
+        const priceScale = candleSeriesChart.priceScale();
+
+        const logicalTime = timeScale.coordinateToLogic(e.offsetX);
+        const priceValue = priceScale.coordinateToPrice(e.offsetY);
+
+        if (priceValue === null || priceValue === undefined) return;
+
+        const price = Number(priceValue.toFixed(2));
+
+        if (drawingToolChart === 'horizontal' || drawingToolChart === 'pricealert') {
+            // Horizontal line - single click
+            const color = drawingToolChart === 'pricealert' ? '#f59e0b' : '#3b82f6';
+            const line = candleSeriesChart.createPriceLine({
+                price: price,
+                color: color,
+                lineWidth: 2,
+                lineStyle: 2,
+                axisLabelVisible: true,
+                title: drawingToolChart === 'pricealert' ? 'Alert: ₹' + price.toFixed(2) : 'H-Line: ₹' + price.toFixed(2)
+            });
+            drawingLinesChart.push(line);
+            showToast(drawingToolChart === 'pricealert' ? 'Price alert line added' : 'Horizontal line added', 'success');
+            activateDrawingTool(null);
+        } else if (drawingToolChart === 'trend') {
+            // Trend line - two clicks using horizontal lines at each point
+            // (LightweightCharts v4 does not have a native trend line API on series)
+            if (!trendStartPoint) {
+                trendStartPoint = { time: logicalTime, price: price };
+                showToast('Click second point for trend line', 'info');
+            } else {
+                // Draw a horizontal line at the second point (trend line approximation)
+                const line = candleSeriesChart.createPriceLine({
+                    price: price,
+                    color: '#3b82f6',
+                    lineWidth: 2,
+                    lineStyle: 0,
+                    axisLabelVisible: false,
+                    title: 'Trend line end: ₹' + price.toFixed(2)
+                });
+                drawingLinesChart.push(line);
+                trendStartPoint = null;
+                showToast('Trend line point added', 'success');
+                activateDrawingTool(null);
+            }
+        }
+    }, { passive: false });
+}
+
+// --- Fullscreen ---
+function toggleChartFullscreen() {
+    const container = document.getElementById('chart');
+    if (!document.fullscreenElement) {
+        container.requestFullscreen().catch(() => {});
+    } else {
+        document.exitFullscreen();
+    }
+}
+
+
 
 // --- ORB Levels (Opening Range Breakout) ---
 function computeOrbLevels(candles) {
@@ -621,17 +1396,255 @@ async function loadDashboardGainersLosers() {
     }
 }
 
-// Stock Selection
+// Stock Selection - opens the dedicated chart view
 function selectStock(symbol) {
-    currentSymbol = symbol;
-    document.getElementById('currentStockName').textContent = symbol.replace('.NS', '');
-    const ss = document.getElementById('stockSearch');
-    if (ss) ss.value = symbol;
-    localStorage.setItem('lastStock', symbol);
-    loadChart();
+    console.log('[selectStock] called with:', symbol);
+    const sym = normalizeSymbol(symbol);
+    currentSymbol = sym;
+    const disp = displaySymbol(sym);
+
+    // Update all stock name / badge elements across UI
+    document.querySelectorAll('#chartStockName, #currentStockName, #chartSymbolBadge').forEach(el => {
+        if (el) el.textContent = disp;
+    });
+
+    localStorage.setItem('lastStock', sym);
+
+    // Subscribe to WebSocket for live price updates on this symbol
+    subscribeToChartSymbol(sym);
+
+    // Set the chart symbol input
+    const chartInput = document.getElementById('chartSymbolInput');
+    if (chartInput) chartInput.value = sym;
+
+    // Show loading price
+    const priceEl = document.getElementById('chartPrice');
+    if (priceEl) priceEl.textContent = 'Loading...';
+
+    console.log('[selectStock] calling showTab(chart) and loadChartChart');
+    showTab('chart');
+    loadChartChart();
 }
 
-// Search
+// Open any stock directly in the chart view
+function openStockChart(symbol) {
+    selectStock(symbol);
+}
+
+// ===== CHART WATCHLIST =====
+
+// Load watchlist into chart sidebar
+async function refreshChartWatchlist() {
+    loadChartWatchlist();
+}
+
+async function loadChartWatchlist() {
+    const container = document.getElementById('chartWatchlistContainer');
+    if (!container) return;
+
+    try {
+        const data = await api('/api/watchlist');
+
+        if (data.watchlist && data.watchlist.length > 0) {
+            container.innerHTML = data.watchlist.map(w => {
+                const sym = w.symbol;
+                const changePct = w.changePercent || 0;
+                const isPositive = changePct >= 0;
+                return `
+                    <div class="watchlist-item-pro" onclick="selectStockFromChartWatchlist('${sym}')" role="button" tabindex="0" aria-label="Select ${displaySymbol(sym)}">
+                        <div class="watchlist-item-info">
+                            <div class="symbol">${displaySymbol(sym)}</div>
+                            <div class="price">${fmtPrice(w.price)}</div>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <div class="watchlist-item-change ${isPositive ? 'positive' : 'negative'}">
+                                ${isPositive ? '+' : ''}${fmtPct(changePct)}
+                            </div>
+                            <button class="watchlist-delete-btn" onclick="event.stopPropagation(); removeFromChartWatchlist('${sym}')" title="Remove from watchlist" aria-label="Remove ${displaySymbol(sym)} from watchlist">
+                                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        } else {
+            container.innerHTML = `
+                <div class="empty-state" style="text-align:center; padding:32px 16px;">
+                    <p class="empty-text" style="font-size:13px; color:var(--text-secondary);">No stocks in watchlist</p>
+                    <p class="empty-hint" style="font-size:11px; color:var(--text-muted); margin-top:4px;">Add symbols above to track them instantly</p>
+                </div>
+            `;
+        }
+    } catch (err) {
+        console.error('Chart watchlist error:', err);
+        container.innerHTML = '<p class="placeholder" style="text-align:center; font-size:12px;">Error loading watchlist</p>';
+    }
+}
+
+// Select stock from chart watchlist
+function selectStockFromChartWatchlist(symbol) {
+    console.log('[selectStockFromChartWatchlist] called with:', symbol);
+    selectStock(symbol);
+}
+
+// Add stock to chart watchlist
+async function addToChartWatchlist() {
+    const input = document.getElementById('chartWatchlistSearch');
+    if (!input || !input.value.trim()) return;
+    
+    const sym = normalizeSymbol(input.value.trim());
+    
+    try {
+        await api('/api/watchlist', {
+            method: 'POST',
+            body: JSON.stringify({ symbol: sym })
+        });
+        input.value = '';
+        document.getElementById('chartWatchlistSuggestions').innerHTML = '';
+        document.getElementById('chartWatchlistSuggestions').classList.remove('active');
+        loadChartWatchlist();
+        showToast('Added to watchlist', 'success');
+    } catch (err) {
+        console.error('Add to watchlist error:', err);
+        showToast('Failed to add to watchlist', 'error');
+    }
+}
+
+// Remove stock from chart watchlist
+async function removeFromChartWatchlist(symbol) {
+    try {
+        await api(`/api/watchlist/${symbol}`, { method: 'DELETE' });
+        loadChartWatchlist();
+        showToast('Removed from watchlist', 'info');
+    } catch (err) {
+        console.error('Remove from watchlist error:', err);
+    }
+}
+
+// Search stocks for chart watchlist
+let chartWatchlistSearchTimeout = null;
+async function searchStockForChartWatchlist(query) {
+    const container = document.getElementById('chartWatchlistSuggestions');
+    if (!container) return;
+    
+    if (query.length < 1) {
+        container.innerHTML = '';
+        container.classList.remove('active');
+        return;
+    }
+    
+    clearTimeout(chartWatchlistSearchTimeout);
+    chartWatchlistSearchTimeout = setTimeout(async () => {
+        const data = await api(`/api/stocks/search?query=${query}`);
+        if (data && data.length > 0) {
+            container.innerHTML = data.slice(0, 8).map(s => `
+                <div class="search-item" onclick="event.stopPropagation(); addSymbolToChartWatchlist('${s.symbol}')" style="cursor:pointer; padding:6px 8px; border-bottom:1px solid var(--border);">
+                    <strong>${displaySymbol(s.symbol)}</strong>
+                    <small style="color:var(--text-muted); font-size:10px; display:block;">${s.name || ''}</small>
+                </div>
+            `).join('');
+            container.classList.add('active');
+        } else {
+            container.innerHTML = '<div style="padding:6px 8px; font-size:11px; color:var(--text-muted);">No results</div>';
+            container.classList.add('active');
+        }
+    }, 200);
+}
+
+function addSymbolToChartWatchlist(symbol) {
+    const input = document.getElementById('chartWatchlistSearch');
+    if (input) input.value = displaySymbol(symbol);
+    document.getElementById('chartWatchlistSuggestions').innerHTML = '';
+    document.getElementById('chartWatchlistSuggestions').classList.remove('active');
+    addToChartWatchlist();
+}
+
+// Load chart from symbol input (Enter key or button)
+function loadChartSymbolFromInput() {
+    loadChartChart();
+}
+
+// Enter key on chart symbol input
+document.getElementById('chartSymbolInput')?.addEventListener('keydown', async (e) => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        loadChartChart();
+    }
+});
+
+// Chart symbol search with clickable results
+let chartSymbolSearchTimeout = null;
+document.getElementById('chartSymbolInput')?.addEventListener('input', async (e) => {
+    const q = e.target.value.trim();
+    const container = document.getElementById('chartSearchResults');
+    if (!container) return;
+    
+    if (q.length < 2) {
+        container.innerHTML = '';
+        container.classList.remove('active');
+        return;
+    }
+    
+    clearTimeout(chartSymbolSearchTimeout);
+    chartSymbolSearchTimeout = setTimeout(async () => {
+        const data = await api(`/api/stocks/search?query=${encodeURIComponent(q)}`);
+        if (data && data.length > 0) {
+            container.innerHTML = data.slice(0, 8).map(s => `
+                <div class="search-item" onclick="event.stopPropagation(); selectStockFromSearch('${s.symbol}')" style="cursor:pointer; padding:6px 8px; border-bottom:1px solid var(--border);">
+                    <strong>${displaySymbol(s.symbol)}</strong>
+                    <small style="color:var(--text-muted); font-size:10px; display:block;">${s.name || ''}</small>
+                </div>
+            `).join('');
+            container.classList.add('active');
+        } else {
+            container.innerHTML = '<div style="padding:6px 8px; font-size:11px; color:var(--text-muted);">No results</div>';
+            container.classList.add('active');
+        }
+    }, 200);
+});
+
+function selectStockFromSearch(symbol) {
+    const input = document.getElementById('chartSymbolInput');
+    if (input) input.value = symbol;
+    document.getElementById('chartSearchResults').innerHTML = '';
+    document.getElementById('chartSearchResults').classList.remove('active');
+    loadChartChart();
+}
+
+// Enter key on chart watchlist search
+document.getElementById('chartWatchlistSearch')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        addToChartWatchlist();
+    }
+});
+
+// Initialize chart watchlist when tab opens
+const _originalShowTabChart2 = window.showTab;
+window.showTab = function(tabName) {
+    console.log('[showTab] called with:', tabName);
+    _originalShowTabChart2(tabName);
+    if (tabName === 'chart') {
+        console.log('[showTab] chart tab activated');
+        if (!chartChart) {
+            console.log('[showTab] initializing chartChart');
+            initChartChart();
+        }
+        console.log('[showTab] calling loadChartChart');
+        loadChartChart();
+        loadChartWatchlist();
+    }
+    if (tabName === 'upstox-intraday') {
+        initUpstoxDesk();
+    }
+};
+
+// Search - input listener
+// Main search input - type as we go with debouncing
+let searchInputTimeout = null;
 document.getElementById('searchInput')?.addEventListener('input', async (e) => {
     const q = e.target.value.trim();
     if (q.length < 2) {
@@ -639,19 +1652,48 @@ document.getElementById('searchInput')?.addEventListener('input', async (e) => {
         return;
     }
     
-    const data = await api(`/api/stocks/search?q=${encodeURIComponent(q)}`);
-    const container = document.getElementById('searchResults');
-    
-    if (data.results && data.results.length > 0) {
-        container.innerHTML = data.results.slice(0, 10).map(r => `
-            <div class="search-item" onclick="selectStock('${r.symbol}')">
-                <strong>${r.symbol.replace('.NS', '')}</strong>
-                <small style="color: var(--text-muted); margin-left: 8px;">${r.name || ''}</small>
-            </div>
-        `).join('');
-        container.classList.add('active');
-    } else {
-        container.classList.remove('active');
+    clearTimeout(searchInputTimeout);
+    searchInputTimeout = setTimeout(async () => {
+        const data = await api(`/api/stocks/search?query=${encodeURIComponent(q)}`);
+        const container = document.getElementById('searchResults');
+        
+        if (data && data.length > 0) {
+            container.innerHTML = data.slice(0, 10).map(r => `
+                <div class="search-item" style="display:flex; justify-content:space-between; align-items:center;">
+                    <div onclick="selectStock('${r.symbol}')" style="cursor:pointer; flex:1;">
+                        <strong>${r.symbol.replace('.NS', '')}</strong>
+                        <small style="color: var(--text-muted); margin-left: 8px; display:block;">${r.name || ''}</small>
+                    </div>
+                    <button class="btn-sm icon-btn" onclick="event.stopPropagation(); openStockChart('${r.symbol}')" title="Open Chart" aria-label="Open chart for ${r.symbol}">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <rect x="1" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <line x1="1" y1="12" x2="7" y2="12"></line>
+                            <line x1="1" y1="19" x2="7" y2="19"></line>
+                            <line x1="7" y1="3" x2="19" y2="3"></line>
+                            <line x1="14" y1="3" x2="14" y2="21"></line>
+                        </svg>
+                    </button>
+                </div>
+            `).join('');
+            container.classList.add('active');
+        } else {
+            container.classList.remove('active');
+        }
+    }, 200);
+});
+
+// Enter key on search input opens first result in chart
+document.getElementById('searchInput')?.addEventListener('keydown', async (e) => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        const q = e.target.value.trim();
+        if (q.length < 2) return;
+        const data = await api(`/api/stocks/search?query=${encodeURIComponent(q)}`);
+        if (data && data.length > 0) {
+            selectStock(data[0].symbol);
+            document.getElementById('searchResults').classList.remove('active');
+            document.getElementById('searchInput').value = '';
+        }
     }
 });
 
@@ -682,7 +1724,7 @@ async function loadMarket() {
                 <thead><tr><th>Stock</th><th>Price</th><th>Change</th></tr></thead>
                 <tbody>
                     ${gainersData.gainers.map(s => `
-                        <tr onclick="selectStock('${s.symbol}'); showTab('dashboard')" style="cursor:pointer">
+                        <tr onclick="selectStock('${s.symbol}'); showTab('chart')" style="cursor:pointer">
                             <td><strong>${s.name}</strong></td>
                             <td>${fmtPrice(s.price)}</td>
                             <td class="positive">+${fmtPct(s.changePercent)}</td>
@@ -699,7 +1741,7 @@ async function loadMarket() {
                 <thead><tr><th>Stock</th><th>Price</th><th>Change</th></tr></thead>
                 <tbody>
                     ${losersData.losers.map(s => `
-                        <tr onclick="selectStock('${s.symbol}'); showTab('dashboard')" style="cursor:pointer">
+                        <tr onclick="selectStock('${s.symbol}'); showTab('chart')" style="cursor:pointer">
                             <td><strong>${s.name}</strong></td>
                             <td>${fmtPrice(s.price)}</td>
                             <td class="negative">${fmtPct(s.changePercent)}</td>
@@ -728,7 +1770,7 @@ async function loadSignals() {
                             <td>${s.indicator || '-'}</td>
                             <td>${s.strength || '-'}</td>
                             <td>₹${s.price}</td>
-                            <td><button class="btn-primary" onclick="selectStock('${s.symbol}'); showTab('dashboard')">View</button></td>
+                            <td><button class="btn-primary" onclick="selectStock('${s.symbol}'); showTab('chart')">View</button></td>
                         </tr>
                     `).join('')}
                 </tbody>
@@ -818,7 +1860,7 @@ function displayScreenerResults(data) {
                                 <td class="${s.changePercent >= 0 ? 'positive' : 'negative'}">${fmtPct(s.changePercent)}</td>
                                 <td>${s.rsi?.toFixed(2) || '-'}</td>
                                 <td>${s.macd?.toFixed(2) || '-'}</td>
-                                <td><button class="btn-primary" onclick="selectStock('${s.symbol}'); showTab('dashboard')">View</button></td>
+                                <td><button class="btn-primary" onclick="selectStock('${s.symbol}'); showTab('chart')">View</button></td>
                             </tr>
                         `).join('')}
                     </tbody>
@@ -930,28 +1972,34 @@ async function loadNews() {
     const data = await api('/api/news');
     const container = document.getElementById('marketNews');
     
-    if (data.news && data.news.length > 0) {
-        container.innerHTML = data.news.map(n => `
+    const news = data.news || data.items || [];
+    if (news.length > 0) {
+        container.innerHTML = news.map(n => `
             <div class="news-item">
                 <h4>${n.title}</h4>
                 <p>${n.summary || ''}</p>
-                <div class="news-meta">${n.publisher || ''} • ${n.published || ''}</div>
+                <div class="news-meta">${n.publisher || n.source || 'Unknown'} • ${n.published || n.publishedAt || n.time || ''}</div>
             </div>
         `).join('');
+    } else {
+        container.innerHTML = '<p class="placeholder">No market news available</p>';
     }
 }
 
 async function loadStockNews() {
-    const symbol = document.getElementById('newsSymbol').value;
+    const raw = document.getElementById('newsSymbol').value;
+    const symbol = normalizeSymbol(raw);
+    document.getElementById('newsSymbol').value = symbol;
     const data = await api(`/api/news/${symbol}`);
     const container = document.getElementById('stockNews');
     
-    if (data.news && data.news.length > 0) {
-        container.innerHTML = data.news.map(n => `
+    const news = data.news || [];
+    if (news.length > 0) {
+        container.innerHTML = news.map(n => `
             <div class="news-item">
                 <h4>${n.title}</h4>
                 <p>${n.summary || ''}</p>
-                <div class="news-meta">${n.publisher || ''} • ${n.published || ''}</div>
+                <div class="news-meta">${n.publisher || 'Upstox'} • ${n.published || n.publishedAt || ''}</div>
             </div>
         `).join('');
     } else {
@@ -1022,7 +2070,7 @@ async function loadWatchlist() {
                             <td>${fmtPrice(w.price)}</td>
                             <td class="${(w.changePercent || 0) >= 0 ? 'positive' : 'negative'}">${fmtPct(w.changePercent || 0)}</td>
                             <td>
-                                <button class="btn-primary" onclick="selectStock('${w.symbol}'); showTab('dashboard')">View</button>
+                                <button class="btn-primary" onclick="selectStock('${w.symbol}'); showTab('chart')">View</button>
                                 <button class="btn-danger" onclick="removeWatchlist('${w.symbol}')">Remove</button>
                             </td>
                         </tr>
@@ -1063,9 +2111,9 @@ async function searchStockForWatchlist(query) {
     
     clearTimeout(watchlistSearchTimeout);
     watchlistSearchTimeout = setTimeout(async () => {
-        const data = await api(`/api/stocks/search?q=${query}`);
-        if (data.results && data.results.length > 0) {
-            container.innerHTML = data.results.map(s => `
+        const data = await api(`/api/stocks/search?query=${query}`);
+        if (data && data.length > 0) {
+            container.innerHTML = data.map(s => `
                 <div class="suggestion-item" onclick="selectWatchlistStock('${s.symbol}', '${s.name}')">
                     <strong>${s.name}</strong>
                     <span>${s.symbol}</span>
@@ -1099,9 +2147,9 @@ async function searchStockForPortfolio(query) {
     
     clearTimeout(portfolioSearchTimeout);
     portfolioSearchTimeout = setTimeout(async () => {
-        const data = await api(`/api/stocks/search?q=${query}`);
-        if (data.results && data.results.length > 0) {
-            container.innerHTML = data.results.map(s => `
+        const data = await api(`/api/stocks/search?query=${query}`);
+        if (data && data.length > 0) {
+            container.innerHTML = data.map(s => `
                 <div class="suggestion-item" onclick="selectPortfolioStock('${s.symbol}', '${s.name}')">
                     <strong>${s.name}</strong>
                     <span>${s.symbol}</span>
@@ -1121,46 +2169,9 @@ function selectPortfolioStock(symbol, name) {
     document.getElementById('portfolioSuggestions').style.display = 'none';
 }
 
-// Stock search for main topbar
-let mainSearchTimeout = null;
-async function searchStockForMain(query) {
-    const container = document.getElementById('stockSearchSuggestions');
-    if (!container) return;
-    
-    if (query.length < 1) {
-        container.innerHTML = '';
-        container.style.display = 'none';
-        return;
-    }
-    
-    clearTimeout(mainSearchTimeout);
-    mainSearchTimeout = setTimeout(async () => {
-        const data = await api(`/api/stocks/search?q=${query}`);
-        if (data.results && data.results.length > 0) {
-            container.innerHTML = data.results.map(s => `
-                <div class="suggestion-item" onclick="selectMainStock('${s.symbol}', '${s.name}')">
-                    <strong>${s.name}</strong>
-                    <span>${s.symbol}</span>
-                </div>
-            `).join('');
-            container.style.display = 'block';
-        } else {
-            container.innerHTML = '<div class="suggestion-item">No results</div>';
-            container.style.display = 'block';
-        }
-    }, 200);
-}
-
-function selectMainStock(symbol, name) {
-    selectStock(symbol);
-    document.getElementById('stockSearch').value = '';
-    document.getElementById('stockSearchSuggestions').innerHTML = '';
-    document.getElementById('stockSearchSuggestions').style.display = 'none';
-}
-
 // Close suggestions when clicking outside
 document.addEventListener('click', (e) => {
-    if (!e.target.closest('.stock-selector') && !e.target.closest('.watchlist-form') && !e.target.closest('.portfolio-form')) {
+    if (!e.target.closest('.watchlist-form') && !e.target.closest('.portfolio-form')) {
         document.querySelectorAll('.search-suggestions').forEach(el => {
             el.innerHTML = '';
             el.style.display = 'none';
@@ -1700,7 +2711,7 @@ async function loadMarketMood() {
                 <h4 style="font-size:13px; color:var(--text-secondary); margin-bottom:8px;">Top Trending</h4>
                 <div class="trending-list">
                     ${data.trending_stocks.map(s => `
-                        <div class="trending-item" onclick="selectStock('${s.symbol}'); showTab('dashboard')" style="cursor:pointer">
+                        <div class="trending-item" onclick="selectStock('${s.symbol}'); showTab('chart')" style="cursor:pointer">
                             <strong>${s.name}</strong>
                             <span class="badge ${s.sentiment === 'BULLISH' ? 'positive' : s.sentiment === 'BEARISH' ? 'negative' : ''}">${s.sentiment}</span>
                             <span style="color:var(--text-muted); font-size:12px;">${s.news_count} news</span>
@@ -1888,20 +2899,31 @@ async function runSentimentScan() {
     `;
 }
 
-// Live Updates
+// Live Updates - now driven by WebSocket instead of REST polling
 function startLiveUpdates() {
     if (liveInterval) clearInterval(liveInterval);
-    liveInterval = setInterval(async () => {
-        const data = await api(`/api/stocks/${currentSymbol}/live`);
-        if (data && data.price) {
-            document.getElementById('livePrice').textContent = `₹${data.price}`;
-            document.getElementById('chartPrice').textContent = `₹${data.price}`;
-        }
-    }, 30000);
+    // WebSocket handles live prices; just ensure connection is active
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        connectWebSocket();
+    }
+    // Subscribe to the current symbol for live price updates
+    if (currentSymbol) {
+        subscribeToChartSymbol(currentSymbol);
+    }
 }
 
 // Keyboard Shortcuts
 document.addEventListener('keydown', (e) => {
+    // '/' focuses the search box
+    if (e.key === '/' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'SELECT' && e.target.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput) {
+            searchInput.focus();
+            searchInput.value = '';
+        }
+        return;
+    }
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
     
     switch(e.key) {
@@ -1954,7 +2976,7 @@ async function loadHeatmap() {
                     <div class="sector-stocks">
                         ${sector.stocks.map(stock => `
                             <div class="heatmap-stock ${stock.change >= 0 ? 'positive' : 'negative'}" 
-                                 onclick="selectStock('${stock.symbol}'); showTab('dashboard')"
+                                 onclick="selectStock('${stock.symbol}'); showTab('chart')"
                                  style="opacity: ${Math.min(Math.abs(stock.change) / 3 + 0.4, 1)}">
                                 <span class="stock-name">${stock.name}</span>
                                 <span class="stock-change">${fmtChg(stock.change)}%</span>
@@ -3469,20 +4491,44 @@ async function loadFiiDii() {
     `;
 }
 
-// ===== TOAST NOTIFICATION SYSTEM =====
+// ===== TOAST NOTIFICATION SYSTEM (UI/UX Pro Max Enhanced) =====
 function showToast(message, type = 'info') {
     const container = document.getElementById('toastContainer');
     if (!container) return;
+
+    const icons = {
+        success: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>',
+        error: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>',
+        warning: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>',
+        info: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>'
+    };
+
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
-    toast.textContent = message;
+    toast.setAttribute('role', 'status');
+    toast.setAttribute('aria-live', 'polite');
+
+    toast.innerHTML = `
+        <div class="toast-content" style="display:flex; align-items:flex-start; gap:12px;">
+            <div class="toast-icon" style="flex-shrink:0; margin-top:2px;">${icons[type] || icons.info}</div>
+            <div class="toast-message" style="flex-grow:1; font-size:13px; font-weight:500; color:var(--text-primary); line-height:1.4;">${message}</div>
+            <button class="toast-close" onclick="this.closest('.toast').remove()" aria-label="Close notification" style="background:none; border:none; color:var(--text-muted); cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:4px; transition:color 0.2s;">
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+        </div>
+        <div class="toast-progress" style="position:absolute; bottom:0; left:0; height:2px; width:100%; animation: toastProgress 3s linear forwards;"></div>
+    `;
+
     container.appendChild(toast);
     requestAnimationFrame(() => { toast.classList.add('show'); });
-    setTimeout(() => {
+
+    const timeoutId = setTimeout(() => {
         toast.classList.remove('show');
         toast.classList.add('hide');
         setTimeout(() => toast.remove(), 300);
     }, 3000);
+
+    toast.addEventListener('mouseenter', () => clearTimeout(timeoutId));
 }
 
 // ===== TABLE SORTING =====
@@ -3704,6 +4750,20 @@ function renderBacktestEquityCurve(containerId, equityData) {
 let ws = null;
 let wsReconnectAttempts = 0;
 const MAX_WS_RECONNECT = 5;
+const WS_INDEX_SYMBOLS = ['^NSEI', '^BSESN', '^NSEBANK', '^CNXIT', '^NSEMDCP50'];
+
+// Send the full subscription (indices + currently open chart symbol).
+// Returns true when the socket is open and the message was sent.
+function sendWsSubscription() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+
+    const symbols = new Set(WS_INDEX_SYMBOLS);
+    chartWsSymbols.forEach(s => symbols.add(s));
+
+    ws.send(JSON.stringify({ symbols: Array.from(symbols) }));
+    console.log('[WS] Subscribed to symbols:', Array.from(symbols));
+    return true;
+}
 
 function connectWebSocket() {
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -3714,11 +4774,8 @@ function connectWebSocket() {
         console.log('[WS] Connected to live prices');
         wsReconnectAttempts = 0;
         updateConnectionStatus('connected');
-
-        // Send symbols to track
-        ws.send(JSON.stringify({
-            symbols: ['^NSEI', '^BSESN', '^NSEBANK', '^CNXIT', '^NSEMDCP50']
-        }));
+        sendWsSubscription();
+        if (chartWsSymbols.size > 0) setChartWsStatus('connecting');
     };
 
     ws.onmessage = function(event) {
@@ -3726,6 +4783,12 @@ function connectWebSocket() {
             const data = JSON.parse(event.data);
             if (data.prices) {
                 updateMarketOverviewLive(data.prices);
+                // Also update chart if it's showing this symbol
+                Object.entries(data.prices).forEach(([symbol, q]) => {
+                    if (chartWsSymbols.has(symbol)) {
+                        updateChartLivePrice(symbol, q.price, q.change, q.changePercent);
+                    }
+                });
             }
         } catch (e) {
             console.error('[WS] Parse error:', e);
@@ -3735,6 +4798,7 @@ function connectWebSocket() {
     ws.onclose = function() {
         console.log('[WS] Disconnected');
         updateConnectionStatus('disconnected');
+        setChartWsStatus('offline');
         if (wsReconnectAttempts < MAX_WS_RECONNECT) {
             wsReconnectAttempts++;
             const delay = 3000 * wsReconnectAttempts;
@@ -3749,6 +4813,7 @@ function connectWebSocket() {
     ws.onerror = function() {
         console.log('[WS] Error');
         updateConnectionStatus('error');
+        setChartWsStatus('error');
     };
 }
 
@@ -3790,7 +4855,15 @@ function updateMarketOverviewLive(prices) {
     }
 
     // Also update the topbar live price for the currently selected stock if we have data
-    // (This is a bonus - the main chart still uses its own polling)
+    const currentSym = normalizeSymbol(currentSymbol);
+    if (prices[currentSym]) {
+        const priceData = prices[currentSym];
+        const livePriceEl = document.getElementById('livePrice');
+        if (livePriceEl) {
+            livePriceEl.textContent = `₹${Number(priceData.price).toFixed(2)}`;
+            livePriceEl.className = 'price-badge ' + (priceData.change >= 0 ? 'positive' : 'negative');
+        }
+    }
 }
 
 function flashElement(el, className) {
@@ -4023,7 +5096,7 @@ async function loadVolumeAlerts() {
             container.innerHTML = data.alerts.map(alert => `
                 <div class="volume-alert-item ${alert.signal.toLowerCase()}">
                     <div class="alert-left">
-                        <span class="alert-symbol" onclick="selectStock('${alert.symbol}.NS'); showTab('dashboard')" style="cursor:pointer">${alert.symbol}</span>
+                        <span class="alert-symbol" onclick="selectStock('${alert.symbol}.NS'); showTab('chart')" style="cursor:pointer">${alert.symbol}</span>
                         <span class="alert-price">₹${alert.price}</span>
                     </div>
                     <div class="alert-center">
@@ -4069,15 +5142,14 @@ let portfolioTickerInterval = null;
 
 async function loadPortfolioTicker() {
     try {
-        const response = await fetch('/api/portfolio/live-pnl');
-        const data = await response.json();
+        const data = await api('/api/portfolio/live-pnl');
 
         const ticker = document.getElementById('tickerContent');
         if (!ticker || !data.holdings || data.holdings.length === 0) return;
 
         // Create scrolling ticker content
         const tickerItems = data.holdings.map(h => `
-            <span class="ticker-item" onclick="selectStock('${h.symbol}'); showTab('dashboard')" style="cursor:pointer">
+            <span class="ticker-item" onclick="selectStock('${h.symbol}'); showTab('chart')" style="cursor:pointer">
                 <span class="ticker-symbol">${h.symbol.replace('.NS', '')}</span>
                 <span class="ticker-price">₹${h.currentPrice}</span>
                 <span class="ticker-pnl ${h.pnl >= 0 ? 'positive' : 'negative'}">
@@ -4355,7 +5427,7 @@ function renderSentinelAlertCard(alert) {
         <div class="sentinel-alert-card ${severityClass}" id="card_${alert.id}">
             <div class="sentinel-card-header">
                 <div class="sentinel-header-left">
-                    <span class="sentinel-symbol-pill" onclick="selectStock('${alert.symbol}'); showTab('dashboard');" title="Click to view chart on dashboard">
+                    <span class="sentinel-symbol-pill" onclick="selectStock('${alert.symbol}'); showTab('chart');" title="Click to view chart on dashboard">
                         ${cleanSym}
                     </span>
                     <span class="sentinel-severity-badge ${severityClass}">${alert.severity}</span>
@@ -4430,7 +5502,7 @@ function renderSentinelAlertCard(alert) {
 
             <!-- Card Footer Actions -->
             <div class="sentinel-card-footer">
-                <button class="btn-sm btn-primary" onclick="selectStock('${alert.symbol}'); showTab('dashboard');">
+                <button class="btn-sm btn-primary" onclick="selectStock('${alert.symbol}'); showTab('chart');">
                     📈 View Chart
                 </button>
                 <button class="btn-sm btn-secondary" onclick="investigateSymbolSentinel('${alert.symbol}')">
@@ -4595,7 +5667,7 @@ function renderSentinelDigestCard(d) {
                     <span class="section-label">🎯 Key Stocks in Focus:</span>
                     <div class="focus-stocks-list">
                         ${d.top_stocks_in_focus.map(sym => `
-                            <button class="focus-stock-btn" onclick="selectStock('${sym}'); showTab('dashboard');">
+                            <button class="focus-stock-btn" onclick="selectStock('${sym}'); showTab('chart');">
                                 ${sym.replace('.NS', '')}
                             </button>
                         `).join('')}
@@ -4720,6 +5792,8 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.classList.add('light-theme');
     }
 
+    checkAuthStatus();
+
     initChart();
 
     const lastStock = localStorage.getItem('lastStock');
@@ -4728,8 +5802,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (lastStock) {
         currentSymbol = lastStock;
         document.getElementById('currentStockName').textContent = lastStock.replace('.NS', '');
-        const ss = document.getElementById('stockSearch');
-        if (ss) ss.value = lastStock;
+        const chartInput = document.getElementById('chartSymbolInput');
+        if (chartInput) chartInput.value = lastStock;
+        localStorage.setItem('lastStock', lastStock);
     }
 
     if (lastTab) {
@@ -5090,12 +6165,5 @@ function initUpstoxDesk() {
     UpstoxDesk.loadScannerMatrix();
 }
 
-// Modify showTab to include Upstox Desk init
-const originalShowTab = window.showTab;
-window.showTab = function(tabId) {
-    originalShowTab(tabId);
-    if (tabId === 'upstox-intraday') {
-        initUpstoxDesk();
-    }
-};
+
 

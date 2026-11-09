@@ -1,8 +1,10 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import Optional
 import json
 import os
+
+from core.auth import verify_api_key
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -51,7 +53,7 @@ def get_alerts_pro():
 
 
 @router.post("/alerts")
-def create_alert_pro(request: AlertProRequest):
+def create_alert_pro(request: AlertProRequest, auth: bool = Depends(verify_api_key)):
     data = load_alerts_pro()
     alert = {
         "id": len(data["alerts"]) + 1,
@@ -66,7 +68,7 @@ def create_alert_pro(request: AlertProRequest):
 
 
 @router.delete("/alerts/{alert_id}")
-def delete_alert_pro(alert_id: int):
+def delete_alert_pro(alert_id: int, auth: bool = Depends(verify_api_key)):
     data = load_alerts_pro()
     data["alerts"] = [a for a in data["alerts"] if a["id"] != alert_id]
     save_alerts_pro(data)

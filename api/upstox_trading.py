@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect, Depends
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -9,6 +9,7 @@ from core.intraday.orb import ORBScanner
 from core.intraday.signals import ConfluenceSignalEngine
 from core.intraday.paper_trading import PaperTradingDesk
 from core.intraday.backtest import IntradayBacktester
+from core.auth import verify_api_key
 
 router = APIRouter(prefix="/api/upstox", tags=["upstox"])
 
@@ -80,7 +81,7 @@ def get_signals_scanner_results():
     return {"signals": signals, "count": len(signals)}
 
 @router.get("/paper/portfolio")
-def get_paper_portfolio():
+def get_paper_portfolio(auth: bool = Depends(verify_api_key)):
     quotes = upstox_engine.get_latest_quotes()
     paper_desk.update_mtm(quotes, engine=upstox_engine)
     summary = paper_desk.get_summary()
@@ -88,7 +89,7 @@ def get_paper_portfolio():
     return summary
 
 @router.post("/paper/order")
-def execute_paper_order(req: PaperOrderRequest):
+def execute_paper_order(req: PaperOrderRequest, auth: bool = Depends(verify_api_key)):
     try:
         position = paper_desk.execute_buy(
             symbol=req.symbol,
@@ -104,7 +105,7 @@ def execute_paper_order(req: PaperOrderRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/paper/close/{position_id}")
-def close_paper_position(position_id: str, req: PaperCloseRequest):
+def close_paper_position(position_id: str, req: PaperCloseRequest, auth: bool = Depends(verify_api_key)):
     try:
         closed = paper_desk.close_position(
             position_id=position_id,
@@ -117,7 +118,7 @@ def close_paper_position(position_id: str, req: PaperCloseRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/paper/reset")
-def reset_paper_portfolio(initial_capital: float = 10000000.0):
+def reset_paper_portfolio(initial_capital: float = 10000000.0, auth: bool = Depends(verify_api_key)):
     paper_desk.cash = initial_capital
     paper_desk.initial_capital = initial_capital
     paper_desk.positions = []

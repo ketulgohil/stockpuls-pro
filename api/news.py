@@ -23,10 +23,12 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
 
 from core.trader_core import IST
+from core.news import get_stock_news, get_market_news
+from core.auth import verify_api_key
 
 router = APIRouter(prefix="/api/news", tags=["news"])
 
@@ -384,55 +386,40 @@ def get_news(
     hours: float = Query(default=48),
     show_all: bool = Query(default=False),
 ):
-    """Get aggregated news for watchlist symbols."""
+    """Get aggregated market news from Downstox."""
     try:
         now = datetime.datetime.now(datetime.timezone.utc)
-        state = _load_state()
-
-        if tickers:
-            watch = {_yahoo_symbol(t): None for t in tickers.split(",") if t.strip()}
-        else:
-            watch = {}
-
-        errors = []
-        items = _collect(watch, errors=errors)
-        items = _tag_items(items, watch)
-        items = _dedupe(items)
-
-        cutoff = now - datetime.timedelta(hours=hours)
-        ahead = now + datetime.timedelta(minutes=10)
-        seen = state.setdefault("seen", {})
-        out = []
-        for it in items:
-            it_time = it.get("time")
-            if isinstance(it_time, str):
-                it_time = _parse_time(it_time)
-            if it_time is not None and (it_time < cutoff or it_time > ahead):
-                continue
-            fp = _fingerprint(it)
-            it["new"] = fp not in seen
-            if it["new"] or show_all:
-                out.append(it)
-        out.sort(key=lambda i: (i.get("time") or now), reverse=True)
-
-        # Price moves (placeholder - no live price fetch in news endpoint)
-        moves = []
+        market_news = get_market_news(limit=20)
 
         result = {
             "checked": now.astimezone(IST).isoformat(),
             "updated_at": now.astimezone(IST).isoformat(),
             "timezone": "IST",
-            "moves": moves,
-            "items": _json_ready(out),
-            "notes": errors,
+            "news": market_news,
+            "moves": [],
+            "items": market_news,
+            "notes": [],
         }
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{symbol}")
+def stock_news(symbol: str):
+    """Get stock-specific news from Upstox."""
+    try:
+        news = get_stock_news(symbol, limit=10)
+        return {
+            "symbol": symbol,
+            "news": news,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/check", response_model=NewsCheckResponse)
-def check_news(req: NewsCheckRequest):
+def check_news(req: NewsCheckRequest, auth: bool = Depends(verify_api_key)):
     """Check news and return new items since last check."""
     try:
         now = datetime.datetime.now(datetime.timezone.utc)

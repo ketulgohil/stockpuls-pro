@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 from core.portfolio import (
@@ -6,6 +6,7 @@ from core.portfolio import (
     get_watchlist, add_to_watchlist, remove_from_watchlist
 )
 from core.data_fetcher import get_live_price
+from core.auth import verify_api_key
 
 router = APIRouter(prefix="/api", tags=["portfolio"])
 
@@ -22,7 +23,7 @@ class WatchlistRequest(BaseModel):
 
 
 @router.get("/portfolio")
-def portfolio():
+def portfolio(auth: bool = Depends(verify_api_key)):
     holdings = get_portfolio()
     for holding in holdings:
         price_data = get_live_price(holding["symbol"])
@@ -38,13 +39,13 @@ def portfolio():
 
 
 @router.post("/portfolio")
-def add_portfolio_holding(request: HoldingRequest):
+def add_portfolio_holding(request: HoldingRequest, auth: bool = Depends(verify_api_key)):
     holding = add_holding(request.symbol, request.quantity, request.buy_price)
     return holding
 
 
 @router.delete("/portfolio/{symbol}")
-def remove_portfolio_holding(symbol: str):
+def remove_portfolio_holding(symbol: str, auth: bool = Depends(verify_api_key)):
     removed = remove_holding(symbol)
     if not removed:
         raise HTTPException(status_code=404, detail="Holding not found")
@@ -52,7 +53,7 @@ def remove_portfolio_holding(symbol: str):
 
 
 @router.get("/watchlist")
-def watchlist():
+def watchlist(auth: bool = Depends(verify_api_key)):
     symbols = get_watchlist()
     for item in symbols:
         price_data = get_live_price(item["symbol"])
@@ -64,14 +65,30 @@ def watchlist():
 
 
 @router.post("/watchlist")
-def add_to_watchlist_endpoint(request: WatchlistRequest):
+def add_to_watchlist_endpoint(request: WatchlistRequest, auth: bool = Depends(verify_api_key)):
     item = add_to_watchlist(request.symbol, request.name)
     return item
 
 
 @router.delete("/watchlist/{symbol}")
-def remove_from_watchlist_endpoint(symbol: str):
+def remove_from_watchlist_endpoint(symbol: str, auth: bool = Depends(verify_api_key)):
     removed = remove_from_watchlist(symbol)
     if not removed:
         raise HTTPException(status_code=404, detail="Symbol not found in watchlist")
     return {"message": f"Removed {symbol} from watchlist"}
+
+
+@router.get("/portfolio/live-pnl")
+def portfolio_live_pnl(auth: bool = Depends(verify_api_key)):
+    holdings = get_portfolio()
+    for holding in holdings:
+        price_data = get_live_price(holding["symbol"])
+        if price_data:
+            holding["currentPrice"] = price_data["price"]
+            holding["pnl"] = round((price_data["price"] - holding["buyPrice"]) * holding["quantity"], 2)
+            holding["pnlPercent"] = round((price_data["price"] - holding["buyPrice"]) / holding["buyPrice"] * 100, 2)
+        else:
+            holding["currentPrice"] = holding["buyPrice"]
+            holding["pnl"] = 0
+            holding["pnlPercent"] = 0
+    return {"holdings": holdings}

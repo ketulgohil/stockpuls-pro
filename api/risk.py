@@ -19,7 +19,7 @@ import re
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
 from core.trader_core import (
@@ -29,6 +29,7 @@ from core.trader_core import (
     is_trading_day,
     parse_ist_timestamp,
 )
+from core.auth import verify_api_key
 
 router = APIRouter(prefix="/api/risk", tags=["risk-manager"])
 
@@ -272,7 +273,7 @@ def placed_today(state, today):
 
 
 @router.post("/check")
-def risk_check(req: RiskCheckRequest):
+def risk_check(req: RiskCheckRequest, auth: bool = Depends(verify_api_key)):
     """Check proposed orders against risk limits. Returns PASS/BLOCK verdicts."""
     try:
         c = dict(DEFAULTS)

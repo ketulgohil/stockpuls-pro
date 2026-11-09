@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from main import app
 from core.sentinel.dispatcher import dispatcher
 from core.sentinel.engine import sentinel_engine
+from core.auth import get_api_key
 
 class TestSentinelAPI(unittest.TestCase):
     def setUp(self):
@@ -34,14 +35,14 @@ class TestSentinelAPI(unittest.TestCase):
         self.assertIn("bear_case", data["analysis"])
 
     def test_trigger_routine_valid(self):
-        response = self.client.post("/api/sentinel/routine/PRE_MARKET")
+        response = self.client.post("/api/sentinel/routine/PRE_MARKET", headers={"X-API-Key": get_api_key()})
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertIn("message", data)
         self.assertIn("PRE_MARKET", data["message"])
 
     def test_trigger_routine_invalid(self):
-        response = self.client.post("/api/sentinel/routine/UNKNOWN_ROUTINE")
+        response = self.client.post("/api/sentinel/routine/UNKNOWN_ROUTINE", headers={"X-API-Key": get_api_key()})
         self.assertEqual(response.status_code, 400)
 
     def test_get_config(self):

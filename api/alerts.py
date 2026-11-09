@@ -20,7 +20,7 @@ import json
 import os
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
 
 from core import upstox_data
@@ -30,6 +30,7 @@ from core.trader_core import (
     get_session_phase,
     is_trading_day,
 )
+from core.auth import verify_api_key
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 
@@ -123,7 +124,7 @@ def alert_clock():
 
 
 @router.post("/quote/{symbol}")
-def alert_quote(symbol: str, req: QuoteRequest):
+def alert_quote(symbol: str, req: QuoteRequest, auth: bool = Depends(verify_api_key)):
     """Fetch and save a quote for alert reference."""
     sym = (req.symbol or symbol).upper()
     try:
@@ -147,7 +148,7 @@ def alert_quote(symbol: str, req: QuoteRequest):
 
 
 @router.post("/rules")
-def add_alert_rule(rule: AlertRule):
+def add_alert_rule(rule: AlertRule, auth: bool = Depends(verify_api_key)):
     """Add a price/stop/target/pct/time alert rule."""
     try:
         sym = rule.symbol.upper()
@@ -191,13 +192,13 @@ def add_alert_rule(rule: AlertRule):
 
 
 @router.get("/rules")
-def list_alert_rules():
+def list_alert_rules(auth: bool = Depends(verify_api_key)):
     """List all alert rules."""
     return _load_json(ALERTS_FILE, {"rules": []})
 
 
 @router.delete("/rules/{alert_id}")
-def remove_alert_rule(alert_id: str):
+def remove_alert_rule(alert_id: str, auth: bool = Depends(verify_api_key)):
     """Remove an alert rule by ID."""
     rules = _load_json(ALERTS_FILE, {"rules": []})
     before = len(rules["rules"])
@@ -209,7 +210,7 @@ def remove_alert_rule(alert_id: str):
 
 
 @router.post("/check", response_model=AlertCheckResponse)
-def check_alerts():
+def check_alerts(auth: bool = Depends(verify_api_key)):
     """Check which alerts have fired since last check. Each rings once."""
     try:
         now = datetime.datetime.now(IST)

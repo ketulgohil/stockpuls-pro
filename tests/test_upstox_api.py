@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 from main import app
+from core.auth import get_api_key
 
 client = TestClient(app)
 
@@ -11,7 +12,7 @@ def test_upstox_status_endpoint():
     assert "token_configured" in data
 
 def test_paper_portfolio_endpoint():
-    response = client.get("/api/upstox/paper/portfolio")
+    response = client.get("/api/upstox/paper/portfolio", headers={"X-API-Key": get_api_key()})
     assert response.status_code == 200
     data = response.json()
     assert "virtual_cash" in data or "cash" in data
@@ -42,7 +43,7 @@ def test_upstox_scanners_endpoints():
 
 def test_paper_trading_order_flow():
     # Reset portfolio first
-    reset_resp = client.post("/api/upstox/paper/reset?initial_capital=500000.0")
+    reset_resp = client.post("/api/upstox/paper/reset?initial_capital=500000.0", headers={"X-API-Key": get_api_key()})
     assert reset_resp.status_code == 200
 
     # Place order
@@ -54,14 +55,14 @@ def test_paper_trading_order_flow():
         "notes": "Test order",
         "entry_price": 2500.0
     }
-    order_resp = client.post("/api/upstox/paper/order", json=order_payload)
+    order_resp = client.post("/api/upstox/paper/order", json=order_payload, headers={"X-API-Key": get_api_key()})
     assert order_resp.status_code == 200
     pos = order_resp.json().get("position", {})
     assert pos.get("status") == "OPEN"
     pos_id = pos.get("id")
 
     # Close position
-    close_resp = client.post(f"/api/upstox/paper/close/{pos_id}", json={"exit_price": 2550.0, "reason": "MANUAL"})
+    close_resp = client.post(f"/api/upstox/paper/close/{pos_id}", json={"exit_price": 2550.0, "reason": "MANUAL"}, headers={"X-API-Key": get_api_key()})
     assert close_resp.status_code == 200
     closed_pos = close_resp.json().get("position", {})
     assert closed_pos.get("status") == "CLOSED"

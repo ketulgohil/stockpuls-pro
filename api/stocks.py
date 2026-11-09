@@ -19,7 +19,7 @@ def search(query: str = Query(..., min_length=1)):
 @router.get("/{symbol}")
 def stock_detail(symbol: str):
     info = get_stock_info(symbol)
-    if not info:
+    if not info or not info.get('currentPrice'):
         raise HTTPException(status_code=404, detail=f"Stock {symbol} not found")
     return info
 

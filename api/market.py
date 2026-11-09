@@ -58,3 +58,33 @@ def top_gainers():
 def top_losers():
     movers = upstox_data.get_top_movers(NIFTY50_SYMBOLS, limit=10)
     return {"losers": [_mover_row(q) for q in movers.get("losers", [])]}
+
+
+@router.get("/pulse")
+def market_pulse():
+    quotes = upstox_data.get_market_indices(list(INDEX_META))
+    changes = []
+    for symbol in INDEX_META:
+        quote = quotes.get(symbol)
+        if quote and "changePercent" in quote:
+            changes.append(quote["changePercent"])
+
+    avg_change = sum(changes) / len(changes) if changes else 0.0
+    score = int(min(max(50 + (avg_change * 25), 0), 100))
+
+    if score >= 65:
+        label = "Bullish"
+        color = "#10b981"
+    elif score <= 35:
+        label = "Bearish"
+        color = "#ef4444"
+    else:
+        label = "Neutral"
+        color = "#f59e0b"
+
+    return {
+        "score": score,
+        "label": label,
+        "color": color,
+        "avgChange": round(avg_change, 2)
+    }

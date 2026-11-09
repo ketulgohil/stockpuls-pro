@@ -69,6 +69,10 @@
                     <span class="nav-icon">◻</span>
                     <span>News</span>
                 </a>
+                <a class="nav-item" data-tab="chart" onclick="showTab('chart')">
+                    <span class="nav-icon">📊</span>
+                    <span>Live Chart</span>
+                </a>
                 <a class="nav-item" data-tab="ai" onclick="showTab('ai')">
                     <span class="nav-icon">◈</span>
                     <span>AI Analysis</span>
@@ -175,14 +179,10 @@
                     </div>
                 </div>
                 <div class="topbar-right">
-                    <div class="stock-selector" style="position: relative;">
-                        <label>Search:</label>
-                        <input type="text" id="stockSearch" placeholder="Search stocks..." oninput="searchStockForMain(this.value)" onfocus="searchStockForMain(this.value)" style="width: 200px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-primary); color: var(--text);">
-                        <div id="stockSearchSuggestions" class="search-suggestions" style="top: 100%; left: 0; right: 0; width: 300px;"></div>
-                    </div>
                     <div class="current-stock">
                         <span id="currentStockName">RELIANCE</span>
                         <span id="livePrice" class="price-badge">Loading...</span>
+                        <span id="authIndicator" class="auth-indicator no-key" title="API Key Status">🔒 No Key</span>
                     </div>
                     <button class="btn-refresh" onclick="loadChart()" title="Refresh (R)">⟳</button>
                 </div>
@@ -210,109 +210,110 @@
                 </div>
                 
                 <!-- ========== DASHBOARD TAB ========== -->
-                <div id="dashboard" class="tab-content active">
-                    <div class="page-header">
-                        <h1>Dashboard</h1>
-                        <p>Real-time market overview and analysis</p>
+                <div id="dashboard" class="tab-content active" role="region" aria-label="Dashboard Workstation">
+                    <div class="page-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px;">
+                        <div>
+                            <h1>StockPulse Pro Workspace</h1>
+                            <p>Professional Indian Equity & Intraday Command Center powered by Upstox Live Feed</p>
+                        </div>
+                        <div style="display:flex; gap:10px; align-items:center;">
+                            <button class="btn-primary" onclick="showTab('chart')" style="display:flex; align-items:center; gap:6px;">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="18" height="18" rx="2"/><line x1="7" y1="12" x2="15" y2="12"/></svg>
+                                Live Chart Desk
+                            </button>
+                            <button class="btn-secondary" onclick="showTab('upstox-intraday')" style="display:flex; align-items:center; gap:6px;">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                                Intraday Signals
+                            </button>
+                        </div>
                     </div>
-                    
+
                     <!-- Live Index Ticker (WebSocket-driven) -->
                     <div class="live-index-grid">
-                        <div class="live-index-card">
+                        <div class="live-index-card" onclick="showTab('market')" style="cursor:pointer;" title="Click for market overview">
                             <div class="index-name">NIFTY 50</div>
                             <div id="wsNiftyPrice" class="index-price">--</div>
                             <div id="wsNiftyChange" class="index-change">--</div>
                         </div>
-                        <div class="live-index-card">
+                        <div class="live-index-card" onclick="showTab('market')" style="cursor:pointer;">
                             <div class="index-name">SENSEX</div>
                             <div id="wsSensexPrice" class="index-price">--</div>
                             <div id="wsSensexChange" class="index-change">--</div>
                         </div>
-                        <div class="live-index-card">
+                        <div class="live-index-card" onclick="showTab('market')" style="cursor:pointer;">
                             <div class="index-name">BANKNIFTY</div>
                             <div id="wsBankniftyPrice" class="index-price">--</div>
                             <div id="wsBankniftyChange" class="index-change">--</div>
                         </div>
-                        <div class="live-index-card">
+                        <div class="live-index-card" onclick="showTab('market')" style="cursor:pointer;">
                             <div class="index-name">NIFTY IT</div>
                             <div id="wsNiftyItPrice" class="index-price">--</div>
                             <div id="wsNiftyItChange" class="index-change">--</div>
                         </div>
-                        <div class="live-index-card">
+                        <div class="live-index-card" onclick="showTab('market')" style="cursor:pointer;">
                             <div class="index-name">NIFTY MIDCAP 100</div>
                             <div id="wsNiftyMidcapPrice" class="index-price">--</div>
                             <div id="wsNiftyMidcapChange" class="index-change">--</div>
                         </div>
                     </div>
 
-                    <div class="chart-section">
-                        <div class="chart-header">
-                            <div class="chart-title">
-                                <h2 id="chartStockName">RELIANCE</h2>
-                                <span id="chartPrice" class="current-price">Loading...</span>
+                    <!-- Quick Stats Row (Portfolio & Intraday Quick Overview) -->
+                    <div class="grid-3 mt-2" style="margin-bottom:20px;">
+                        <div class="card" style="padding:16px; display:flex; align-items:center; justify-content:space-between;">
+                            <div>
+                                <div style="font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px;">Portfolio Holdings</div>
+                                <div id="dashPortfolioVal" style="font-size:20px; font-weight:700; margin-top:4px; color:var(--text-primary);">₹0.00</div>
+                                <div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">Tracked live via Upstox</div>
                             </div>
-                            <div class="chart-controls">
-                                <button class="timeframe-btn active" onclick="changeTimeframe('1d', this)">1D</button>
-                                <button class="timeframe-btn" onclick="changeTimeframe('5d', this)">5D</button>
-                                <button class="timeframe-btn" onclick="changeTimeframe('1mo', this)">1M</button>
-                                <button class="timeframe-btn" onclick="changeTimeframe('3mo', this)">3M</button>
-                                <button class="timeframe-btn" onclick="changeTimeframe('6mo', this)">6M</button>
-                                <button class="timeframe-btn" onclick="changeTimeframe('1y', this)">1Y</button>
-                                <button class="timeframe-btn" onclick="changeTimeframe('5y', this)">5Y</button>
-                                <!-- Intraday timeframes from Indian Day Trader -->
-                                <button class="timeframe-btn" onclick="changeTimeframe('5m', this)">5M</button>
-                                <button class="timeframe-btn" onclick="changeTimeframe('15m', this)">15M</button>
-                                <button class="timeframe-btn" onclick="changeTimeframe('30m', this)">30M</button>
-                                <button class="timeframe-btn" onclick="changeTimeframe('1h', this)">1H</button>
-                            </div>
+                            <button class="btn-secondary" onclick="showTab('portfolio')" style="font-size:12px; padding:6px 12px;">View</button>
                         </div>
-                        <!-- Strategy Levels Badges (from Indian Day Trader chart) -->
-                        <div class="chart-strategy-badges" id="chartStrategyBadges" style="display:none;">
-                            <div class="strat-badge badge-breakout" title="15-min Opening Range High">
-                                <span class="strat-dot dot-blue"></span>
-                                <span class="strat-title">ORB HIGH:</span>
-                                <span id="stratBreakoutVal" class="strat-num">--</span>
+                        <div class="card" style="padding:16px; display:flex; align-items:center; justify-content:space-between;">
+                            <div>
+                                <div style="font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px;">Active ORB Signals</div>
+                                <div id="dashOrbCount" style="font-size:20px; font-weight:700; margin-top:4px; color:var(--accent);">09:15–09:30 IST</div>
+                                <div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">Opening Range Breakouts</div>
                             </div>
-                            <div class="strat-badge badge-stop" title="Stop Loss (Range Low)">
-                                <span class="strat-dot dot-red"></span>
-                                <span class="strat-title">STOP LOSS:</span>
-                                <span id="stratStopVal" class="strat-num">--</span>
-                            </div>
-                            <div class="strat-badge badge-target" title="Target (1.5R)">
-                                <span class="strat-dot dot-green"></span>
-                                <span class="strat-title">TARGET:</span>
-                                <span id="stratTargetVal" class="strat-num">--</span>
-                            </div>
+                            <button class="btn-secondary" onclick="showTab('signals')" style="font-size:12px; padding:6px 12px;">Signals</button>
                         </div>
-                        <div class="chart-indicators">
-                            <span class="indicator-tooltip" data-tip="Relative Strength Index">
-                                RSI: <strong id="chartRsi">-</strong>
-                            </span>
-                            <span class="indicator-tooltip" data-tip="Moving Average Convergence Divergence">
-                                MACD: <strong id="chartMacd">-</strong>
-                            </span>
-                            <span class="indicator-tooltip" data-tip="20-day Simple Moving Average">
-                                SMA20: <strong id="chartSma20">-</strong>
-                            </span>
-                            <span class="indicator-tooltip" data-tip="50-day Simple Moving Average">
-                                SMA50: <strong id="chartSma50">-</strong>
-                            </span>
-                            <span class="indicator-tooltip" data-tip="Average True Range - Volatility">
-                                ATR: <strong id="chartAtr">-</strong>
-                            </span>
-                            <!-- Bar close timer (intraday) -->
-                            <span class="indicator-tooltip" data-tip="Time remaining until current bar closes">
-                                BAR CLOSE: <strong id="chartBarTimer">--:--</strong>
-                            </span>
+                        <div class="card" style="padding:16px; display:flex; align-items:center; justify-content:space-between;">
+                            <div>
+                                <div style="font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px;">Market Breadth</div>
+                                <div id="dashBreadth" style="font-size:20px; font-weight:700; margin-top:4px; color:#10b981;">Bullish Focus</div>
+                                <div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">Real-time Nifty 50 Scanner</div>
+                            </div>
+                            <button class="btn-secondary" onclick="showTab('screener')" style="font-size:12px; padding:6px 12px;">Screener</button>
                         </div>
-                        <div id="chartContainer" class="chart-container"></div>
                     </div>
 
+                    <!-- Market Pulse & Sentiment Widget -->
+                    <div class="card mt-2" style="padding:20px; margin-bottom:20px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:20px;">
+                        <div style="display:flex; align-items:center; gap:16px;">
+                            <div style="width:48px; height:48px; border-radius:12px; background:rgba(59,130,246,0.1); display:flex; align-items:center; justify-content:center; color:var(--accent);">
+                                <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                            </div>
+                            <div>
+                                <h3 style="font-size:16px; font-weight:600; margin-bottom:4px;">Market Pulse & Sentiment Index</h3>
+                                <p style="font-size:12px; color:var(--text-secondary);">Real-time macro sentiment evaluated across Nifty 50 and major Indian indices</p>
+                            </div>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:24px;">
+                            <div style="text-align:right;">
+                                <div id="gaugeScore" style="font-size:24px; font-weight:700; color:var(--text-primary);">--</div>
+                                <div id="gaugeText" style="font-size:13px; font-weight:600; color:#f59e0b;">Analyzing...</div>
+                            </div>
+                            <button class="btn-secondary" onclick="updateMarketPulse()" style="display:flex; align-items:center; gap:6px;">
+                                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                                Refresh Pulse
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Main Gainers & Losers Grid -->
                     <div class="grid-2 mt-2">
                         <div class="card">
                             <div class="card-header">
-                                <h3>Top Gainers</h3>
-                                <div>
+                                <h3>Top Gainers (Nifty 50)</h3>
+                                <div style="display:flex; align-items:center; gap:8px;">
                                     <span class="badge positive">Live</span>
                                     <span class="auto-refresh-badge">60s</span>
                                 </div>
@@ -323,8 +324,8 @@
                         </div>
                         <div class="card">
                             <div class="card-header">
-                                <h3>Top Losers</h3>
-                                <div>
+                                <h3>Top Losers (Nifty 50)</h3>
+                                <div style="display:flex; align-items:center; gap:8px;">
                                     <span class="badge negative">Live</span>
                                     <span class="auto-refresh-badge">60s</span>
                                 </div>
@@ -641,7 +642,7 @@
                         </div>
                         <div class="tool-form">
                             <div class="filter-group">
-                                <input type="text" id="newsSymbol" value="RELIANCE.NS" placeholder="Symbol">
+                                <input type="text" id="newsSymbol" value="RELIANCE" placeholder="Symbol">
                             </div>
                             <button class="btn-primary" onclick="loadStockNews()">Load News</button>
                         </div>
@@ -662,6 +663,208 @@
                             </div>
                             <div id="stockNews" class="news-list">
                                 <p class="placeholder">Click Load News to fetch</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========== LIVE CHART TAB (TradingView-style Pro Redesign) ========== -->
+                <div id="chart" class="tab-content chart-layout" role="region" aria-label="Live Chart">
+                    <div class="chart-pro-grid">
+                        <!-- Left Sidebar Column: Watchlist -->
+                        <aside class="chart-sidebar-watchlist" aria-label="Watchlist">
+                            <div class="panel-header">
+                                <div class="panel-title">
+                                    <svg class="panel-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+                                    </svg>
+                                    <span>Watchlist</span>
+                                </div>
+                                <button class="btn-sm icon-btn" onclick="refreshChartWatchlist()" title="Refresh watchlist" aria-label="Refresh watchlist">
+                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <polyline points="23 4 23 10 17 10"></polyline>
+                                        <polyline points="1 20 1 14 7 14"></polyline>
+                                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                            <div class="watchlist-search">
+                                <label for="chartWatchlistSearch" class="sr-only">Add stock to watchlist</label>
+                                <input type="text" id="chartWatchlistSearch" placeholder="Add stock (e.g. TCS)..." autocomplete="off" aria-label="Add stock to watchlist">
+                                <div id="chartWatchlistSuggestions" class="chart-search-results" role="listbox" aria-label="Watchlist search results"></div>
+                                <button class="btn-sm icon-btn" onclick="addToChartWatchlist()" title="Add to watchlist" aria-label="Add stock to watchlist">
+                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                                    </svg>
+                                </button>
+                            </div>
+                            <div id="chartWatchlistContainer" class="watchlist-items" aria-live="polite">
+                                <div class="empty-state" style="text-align:center; padding:24px 12px;">
+                                    <svg class="empty-icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="opacity:0.4; margin-bottom:8px;">
+                                        <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+                                    </svg>
+                                    <p class="empty-text">Loading Watchlist...</p>
+                                </div>
+                            </div>
+                        </aside>
+
+                        <!-- Right Main Column: Toolbars + Chart Canvas -->
+                        <div class="chart-main-column">
+                            <!-- Top Pro Toolbar -->
+                            <div class="chart-top-toolbar">
+                                <div class="chart-title-group">
+                                    <div class="chart-icon-wrapper">
+                                        <svg class="chart-header-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <rect x="1" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                            <line x1="1" y1="12" x2="7" y2="12"></line>
+                                            <line x1="1" y1="19" x2="7" y2="19"></line>
+                                            <line x1="7" y1="3" x2="19" y2="3"></line>
+                                            <line x1="14" y1="3" x2="14" y2="21"></line>
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <h2 id="chartStockName">RELIANCE</h2>
+                                        <div class="chart-subtitle-meta">
+                                            <span id="chartSymbolBadge" class="symbol-badge">RELIANCE</span>
+                                            <span class="chart-live-badge">
+                                                <span class="ws-dot" id="chartWsDot" aria-hidden="true"></span>
+                                                <span id="chartWsStatus" class="ws-status-text">Live Feed</span>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="chart-price-ticker-box">
+                                    <span class="ticker-label">LTP</span>
+                                    <span id="chartPrice" class="current-price">₹1,324.00</span>
+                                </div>
+
+                                <!-- Symbol Input / Quick Load -->
+                                <div class="chart-symbol-selector">
+                                    <label for="chartSymbolInput" class="sr-only">Stock symbol</label>
+                                    <input type="text" id="chartSymbolInput" value="RELIANCE" placeholder="Symbol (e.g. TCS)" autocomplete="off" aria-label="Stock symbol input">
+                                    <button class="btn-primary" onclick="loadChartSymbolFromInput()" aria-label="Load chart for symbol">Load</button>
+                                </div>
+
+                                <!-- Timeframe Selector -->
+                                <div class="chart-controls" role="radiogroup" aria-label="Chart timeframe">
+                                    <button class="tf-btn active" data-tf="1d" role="radio" aria-checked="true" onclick="setChartTimeframe('1d', this)">1D</button>
+                                    <button class="tf-btn" data-tf="5d" role="radio" aria-checked="false" onclick="setChartTimeframe('5d', this)">5D</button>
+                                    <button class="tf-btn" data-tf="1mo" role="radio" aria-checked="false" onclick="setChartTimeframe('1mo', this)">1M</button>
+                                    <button class="tf-btn" data-tf="3m" role="radio" aria-checked="false" onclick="setChartTimeframe('3m', this)">3M</button>
+                                    <button class="tf-btn" data-tf="6m" role="radio" aria-checked="false" onclick="setChartTimeframe('6m', this)">6M</button>
+                                    <button class="tf-btn" data-tf="1y" role="radio" aria-checked="false" onclick="setChartTimeframe('1y', this)">1Y</button>
+                                    <button class="tf-btn" data-tf="5m" role="radio" aria-checked="false" onclick="setChartTimeframe('5m', this)">5M</button>
+                                    <button class="tf-btn" data-tf="15m" role="radio" aria-checked="false" onclick="setChartTimeframe('15m', this)">15M</button>
+                                    <button class="tf-btn" data-tf="30m" role="radio" aria-checked="false" onclick="setChartTimeframe('30m', this)">30M</button>
+                                    <button class="tf-btn" data-tf="1h" role="radio" aria-checked="false" onclick="setChartTimeframe('1h', this)">1H</button>
+                                </div>
+                            </div>
+
+                            <!-- Telemetry & Strategy Bar -->
+                            <div class="chart-telemetry-bar">
+                                <div class="chart-strategy-badges-chart" id="chartStrategyBadgesChart" role="region" aria-label="Strategy levels">
+                                    <div class="strat-badge badge-breakout" title="ORB High breakout level" aria-label="ORB High breakout level">
+                                        <span class="strat-dot dot-blue" aria-hidden="true"></span>
+                                        <span class="strat-title">ORB HIGH</span>
+                                        <span id="stratBreakoutValChart" class="strat-num">--</span>
+                                    </div>
+                                    <div class="strat-badge badge-stop" title="Stop Loss level" aria-label="Stop loss level">
+                                        <span class="strat-dot dot-red" aria-hidden="true"></span>
+                                        <span class="strat-title">STOP LOSS</span>
+                                        <span id="stratStopValChart" class="strat-num">--</span>
+                                    </div>
+                                    <div class="strat-badge badge-target" title="Target price level" aria-label="Target price level">
+                                        <span class="strat-dot dot-green" aria-hidden="true"></span>
+                                        <span class="strat-title">TARGET</span>
+                                        <span id="stratTargetValChart" class="strat-num">--</span>
+                                    </div>
+                                </div>
+
+                                <div class="chart-indicators" role="region" aria-label="Chart indicators">
+                                    <span class="indicator-tooltip" tabindex="0" data-tip="Relative Strength Index">
+                                        RSI: <strong id="chartRsiChart">--</strong>
+                                    </span>
+                                    <span class="indicator-tooltip" tabindex="0" data-tip="Moving Average Convergence Divergence">
+                                        MACD: <strong id="chartMacdChart">--</strong>
+                                    </span>
+                                    <span class="indicator-tooltip" tabindex="0" data-tip="20-period Simple Moving Average">
+                                        SMA20: <strong id="chartSma20Chart">--</strong>
+                                    </span>
+                                    <span class="indicator-tooltip" tabindex="0" data-tip="50-period Simple Moving Average">
+                                        SMA50: <strong id="chartSma50Chart">--</strong>
+                                    </span>
+                                    <span class="indicator-tooltip" tabindex="0" data-tip="Bar close countdown timer">
+                                        BAR CLOSE: <strong id="chartBarTimerChart">--:--</strong>
+                                    </span>
+                                    <button class="btn-secondary icon-btn fullscreen-action-btn" onclick="toggleChartFullscreen()" title="Toggle fullscreen" aria-label="Toggle fullscreen mode">
+                                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <path d="M8 3H5a2 2 0 0 0-2 2v3"></path>
+                                            <path d="M21 3h-6a2 2 0 0 0-2 2v3"></path>
+                                            <path d="M3 16v3a2 2 0 0 0 2 2h3"></path>
+                                            <path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>
+                                        </svg>
+                                        <span class="btn-label">Fullscreen</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Drawing Tools Bar (TradingView Pro Style) -->
+                            <div class="chart-drawing-tools" role="region" aria-label="Drawing tools">
+                                <div class="tools-header-group">
+                                    <svg class="tools-header-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M12 19l7-7 3 3-7 7-3-3z"></path>
+                                        <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
+                                        <path d="M2 2l7.58 7.58"></path>
+                                        <circle cx="11" cy="11" r="2"></circle>
+                                    </svg>
+                                    <span class="tools-label">Drawing Tools</span>
+                                </div>
+                                <div class="tools-button-group">
+                                    <button class="tool-btn" onclick="activateDrawingTool('horizontal')" title="Horizontal Line" aria-label="Draw horizontal line" aria-pressed="false">
+                                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <line x1="3" y1="12" x2="21" y2="12"></line>
+                                        </svg>
+                                        <span>H-Line</span>
+                                    </button>
+                                    <button class="tool-btn" onclick="activateDrawingTool('trend')" title="Trend Line" aria-label="Draw trend line" aria-pressed="false">
+                                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <line x1="4" y1="20" x2="20" y2="4"></line>
+                                        </svg>
+                                        <span>Trend</span>
+                                    </button>
+                                    <button class="tool-btn" onclick="activateDrawingTool('pricealert')" title="Price Alert" aria-label="Draw price alert line" aria-pressed="false">
+                                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                                            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                                        </svg>
+                                        <span>Alert</span>
+                                    </button>
+                                    <button class="tool-btn danger" onclick="clearDrawingTools()" title="Clear All Drawings" aria-label="Clear all drawings">
+                                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <polyline points="3 6 5 6 21 6"></polyline>
+                                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                        </svg>
+                                        <span>Clear</span>
+                                    </button>
+                                </div>
+                                <div class="tool-status-pill">
+                                    <span class="status-label">Active:</span>
+                                    <span id="drawingToolIndicator" class="status-val" aria-live="polite">None</span>
+                                </div>
+                            </div>
+
+                            <!-- Immersive Chart Canvas Container -->
+                            <div id="chartContainerChart" class="chart-container-full">
+                                <div class="chart-loading" id="chartLoadingChart" role="status" aria-label="Loading chart data">
+                                    <div class="chart-loading-spinner-wrap">
+                                        <div class="skeleton-wave"></div>
+                                        <div class="skeleton-wave" style="width:70%;"></div>
+                                        <div class="skeleton-wave" style="width:50%;"></div>
+                                        <div class="skeleton-text">Loading Upstox Live Candles...</div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -2073,6 +2276,28 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=4.2"></script>
+    <!-- Auth Modal -->
+<div id="authModal" class="auth-modal" onclick="closeAuthModal()">
+    <div class="auth-modal-content" onclick="event.stopPropagation()">
+        <div class="auth-modal-header">
+            <h3>🔐 API Key Settings</h3>
+            <button class="modal-close" onclick="closeAuthModal()">&times;</button>
+        </div>
+        <div class="auth-modal-body">
+            <p class="auth-hint">Enter your StockPulse Pro API key to access protected endpoints (portfolio, alerts, trading, etc.).</p>
+            <div class="form-group">
+                <label>API Key</label>
+                <input type="password" id="authApiKey" placeholder="Enter API key" autocomplete="off">
+                <small class="form-hint">Get your key from the server administrator or set APP_API_KEY in .env</small>
+            </div>
+            <div class="auth-modal-actions" style="display:flex; gap:10px; justify-content:flex-end; margin-top:16px;">
+                <button class="btn-secondary" onclick="closeAuthModal()">Cancel</button>
+                <button class="btn-primary" onclick="saveAuthApiKey()">Save Key</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="/static/js/app.js?v=4.2"></script>
 </body>
 </html>

@@ -1,8 +1,10 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import Optional
 import json
 import os
+
+from core.auth import verify_api_key
 
 router = APIRouter(prefix="/api/advanced", tags=["advanced"])
 
@@ -71,7 +73,7 @@ def save_telegram_alerts(data):
 
 
 @router.post("/telegram/config")
-def set_telegram_config(request: TelegramConfigRequest):
+def set_telegram_config(request: TelegramConfigRequest, auth: bool = Depends(verify_api_key)):
     save_telegram_config({
         "bot_token": request.bot_token,
         "chat_id": request.chat_id
@@ -80,7 +82,7 @@ def set_telegram_config(request: TelegramConfigRequest):
 
 
 @router.get("/telegram/config")
-def get_telegram_config():
+def get_telegram_config(auth: bool = Depends(verify_api_key)):
     config = load_telegram_config()
     if config.get("bot_token"):
         return {"configured": True}
@@ -88,7 +90,7 @@ def get_telegram_config():
 
 
 @router.post("/telegram/alert")
-def create_telegram_alert(request: TelegramAlertRequest):
+def create_telegram_alert(request: TelegramAlertRequest, auth: bool = Depends(verify_api_key)):
     data = load_telegram_alerts()
     alert = {
         "id": len(data["alerts"]) + 1,
@@ -103,12 +105,12 @@ def create_telegram_alert(request: TelegramAlertRequest):
 
 
 @router.get("/telegram/alerts")
-def get_telegram_alerts():
+def get_telegram_alerts(auth: bool = Depends(verify_api_key)):
     return load_telegram_alerts()
 
 
 @router.delete("/telegram/alert/{alert_id}")
-def delete_telegram_alert(alert_id: int):
+def delete_telegram_alert(alert_id: int, auth: bool = Depends(verify_api_key)):
     data = load_telegram_alerts()
     data["alerts"] = [a for a in data["alerts"] if a["id"] != alert_id]
     save_telegram_alerts(data)
@@ -116,7 +118,7 @@ def delete_telegram_alert(alert_id: int):
 
 
 @router.post("/telegram/test")
-def test_telegram():
+def test_telegram(auth: bool = Depends(verify_api_key)):
     config = load_telegram_config()
     if not config.get("bot_token"):
         return {"error": "Telegram not configured"}

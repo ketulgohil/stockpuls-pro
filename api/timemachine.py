@@ -20,7 +20,7 @@ import statistics
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
 from core import upstox_data
@@ -31,6 +31,7 @@ from core.trader_core import (
     is_trading_day,
     parse_ist_timestamp,
 )
+from core.auth import verify_api_key
 
 router = APIRouter(prefix="/api/timemachine", tags=["timemachine"])
 
@@ -421,7 +422,7 @@ def walk_forward(sessions, rule, last, side, split_ratio, embargo_sessions, shar
 
 
 @router.post("/run")
-def timemachine_run(req: TimeMachineRequest):
+def timemachine_run(req: TimeMachineRequest, auth: bool = Depends(verify_api_key)):
     """Run Monte Carlo + walk-forward for a planned trade."""
     try:
         if not 1 <= req.replays <= 1000000:

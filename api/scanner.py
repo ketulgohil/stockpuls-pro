@@ -18,7 +18,7 @@ import os
 import re
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
 from core import upstox_data
@@ -28,6 +28,7 @@ from core.trader_core import (
     get_default_calendar,
     is_trading_day,
 )
+from core.auth import verify_api_key
 
 router = APIRouter(prefix="/api/scanner", tags=["scanner"])
 
@@ -147,7 +148,7 @@ def scanner_universe():
 
 
 @router.post("/daily")
-def scanner_daily(req: DailyScanRequest):
+def scanner_daily(req: DailyScanRequest, auth: bool = Depends(verify_api_key)):
     """Pre-market daily setups scan across Nifty 50 (daily closes)."""
     try:
         now = datetime.datetime.now(IST)
@@ -231,7 +232,7 @@ def scanner_daily(req: DailyScanRequest):
 
 
 @router.post("/orb")
-def scanner_orb(req: OrbScanRequest):
+def scanner_orb(req: OrbScanRequest, auth: bool = Depends(verify_api_key)):
     """Intraday opening-range breakout (ORB) scan across Nifty 50."""
     try:
         now = datetime.datetime.now(IST)

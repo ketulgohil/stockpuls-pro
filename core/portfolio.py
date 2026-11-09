@@ -65,9 +65,26 @@ def remove_holding(symbol: str) -> bool:
     return False
 
 
+DEFAULT_WATCHLIST_SYMBOLS = [
+    {"symbol": "RELIANCE.NS", "name": "Reliance Industries"},
+    {"symbol": "TCS.NS", "name": "Tata Consultancy Services"},
+    {"symbol": "INFY.NS", "name": "Infosys"},
+    {"symbol": "HDFCBANK.NS", "name": "HDFC Bank"},
+    {"symbol": "ICICIBANK.NS", "name": "ICICI Bank"},
+    {"symbol": "SBIN.NS", "name": "State Bank of India"},
+    {"symbol": "BHARTIARTL.NS", "name": "Bharti Airtel"},
+    {"symbol": "TATAMOTORS.NS", "name": "Tata Motors"}
+]
+
+
 def get_watchlist() -> list[dict]:
     data = _load_json(WATCHLIST_FILE)
-    return data.get("symbols", [])
+    symbols = data.get("symbols", [])
+    if not symbols:
+        data["symbols"] = DEFAULT_WATCHLIST_SYMBOLS
+        _save_json(WATCHLIST_FILE, data)
+        return DEFAULT_WATCHLIST_SYMBOLS
+    return symbols
 
 
 def add_to_watchlist(symbol: str, name: str = "") -> dict:

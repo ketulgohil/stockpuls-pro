@@ -1,10 +1,11 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 
 from core import upstox_data
 from core.data_fetcher import get_stock_data
+from core.auth import verify_api_key
 
 router = APIRouter(prefix="/api/features", tags=["features"])
 
@@ -17,21 +18,21 @@ class NoteRequest(BaseModel):
 
 
 @router.get("/notes/{symbol}")
-def get_notes(symbol: str):
+def get_notes(symbol: str, auth: bool = Depends(verify_api_key)):
     from core.notes import get_notes
     notes = get_notes(symbol)
     return {"symbol": symbol, "notes": notes, "count": len(notes)}
 
 
 @router.post("/notes")
-def add_note(request: NoteRequest):
+def add_note(request: NoteRequest, auth: bool = Depends(verify_api_key)):
     from core.notes import add_note
     note = add_note(request.symbol, request.note, request.category)
     return note
 
 
 @router.delete("/notes/{symbol}/{note_id}")
-def delete_note(symbol: str, note_id: int):
+def delete_note(symbol: str, note_id: int, auth: bool = Depends(verify_api_key)):
     from core.notes import delete_note
     deleted = delete_note(symbol, note_id)
     if not deleted:
@@ -40,7 +41,7 @@ def delete_note(symbol: str, note_id: int):
 
 
 @router.get("/notes")
-def all_notes():
+def all_notes(auth: bool = Depends(verify_api_key)):
     from core.notes import get_all_notes
     return get_all_notes()
 

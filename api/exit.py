@@ -19,7 +19,7 @@ import re
 from decimal import Decimal, InvalidOperation, ROUND_FLOOR, ROUND_HALF_UP
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
 
 from core.trader_core import (
@@ -29,6 +29,7 @@ from core.trader_core import (
     get_default_calendar,
     IST,
 )
+from core.auth import verify_api_key
 
 router = APIRouter(prefix="/api/exit", tags=["exit-planner"])
 
@@ -307,7 +308,7 @@ def _save_plans(plans: dict) -> None:
 
 
 @router.post("/plan", response_model=ExitPlanResponse)
-def exit_plan(req: ExitPlanRequest):
+def exit_plan(req: ExitPlanRequest, auth: bool = Depends(verify_api_key)):
     """Compute a stop/target plan with statutory cost netting."""
     try:
         e = D(req.entry, "entry")

@@ -1,8 +1,10 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import Optional
 import json
 import os
+
+from core.auth import verify_api_key
 
 router = APIRouter(prefix="/api/gemini", tags=["gemini"])
 
@@ -36,7 +38,7 @@ def save_config(data):
 
 
 @router.post("/config")
-def set_api_key(request: ConfigRequest):
+def set_api_key(request: ConfigRequest, auth: bool = Depends(verify_api_key)):
     save_config({"api_key": request.api_key})
     
     from core.gemini import configure_gemini
@@ -46,7 +48,7 @@ def set_api_key(request: ConfigRequest):
 
 
 @router.get("/config")
-def get_config():
+def get_config(auth: bool = Depends(verify_api_key)):
     config = load_config()
     if config.get("api_key"):
         key = config["api_key"]

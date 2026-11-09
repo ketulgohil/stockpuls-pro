@@ -18,8 +18,10 @@ import json
 import os
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
+
+from core.auth import verify_api_key
 
 router = APIRouter(prefix="/api/broker", tags=["broker"])
 
@@ -166,7 +168,7 @@ def render_slip(sym, qty, price, stop, target, exchange, product, order_type, br
 
 
 @router.post("/slip", response_model=SlipResponse)
-def render_order_slip(req: SlipRequest):
+def render_order_slip(req: SlipRequest, auth: bool = Depends(verify_api_key)):
     """Render a manual order slip for a broker terminal."""
     try:
         if req.broker.lower() not in BROKERS:
@@ -195,13 +197,13 @@ def render_order_slip(req: SlipRequest):
 
 
 @router.get("/slips")
-def list_slips():
+def list_slips(auth: bool = Depends(verify_api_key)):
     """List all proposed order slips."""
     return _load_json(SLIPS_FILE, {"slips": []})
 
 
 @router.post("/fill")
-def record_fill(req: FillRequest):
+def record_fill(req: FillRequest, auth: bool = Depends(verify_api_key)):
     """Record a manual fill (reconciliation) for a ticket."""
     try:
         fill = {

@@ -18,10 +18,11 @@ import os
 from decimal import Decimal, InvalidOperation, ROUND_FLOOR, ROUND_HALF_UP
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
 from core.trader_core import calculate_intraday_costs, CostError, IST
+from core.auth import verify_api_key
 
 router = APIRouter(prefix="/api/budget", tags=["budget-manager"])
 
@@ -440,7 +441,7 @@ def bracket_order(s: dict) -> Optional[dict]:
 
 
 @router.post("/size", response_model=SizeResponse)
-def size_trade_endpoint(req: SizeRequest):
+def size_trade_endpoint(req: SizeRequest, auth: bool = Depends(verify_api_key)):
     """Size a day trade to budget and max loss. Returns a bracket order proposal."""
     try:
         plan = {

@@ -17,7 +17,7 @@ import os
 import re
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
 from core import upstox_data
@@ -28,6 +28,7 @@ from core.trader_core import (
     get_default_calendar,
     is_trading_day,
 )
+from core.auth import verify_api_key
 
 router = APIRouter(prefix="/api/entry", tags=["entry-timer"])
 
@@ -297,7 +298,7 @@ def evaluate(chart_bars, now_utc, setup="orb", or_minutes=15, interval="5m",
 
 
 @router.post("/check", response_model=EntryCheckResponse)
-def entry_check(req: EntryCheckRequest):
+def entry_check(req: EntryCheckRequest, auth: bool = Depends(verify_api_key)):
     """Check a symbol's entry status right now."""
     try:
         sym = req.symbol.upper()

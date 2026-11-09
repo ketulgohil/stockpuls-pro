@@ -4329,15 +4329,24 @@ body { --chart-bg: var(--bg-card); }
     padding: 16px 24px 24px 24px;
 }
 
-/* The chart layout sets display:flex, which otherwise overrides the
-   .tab-content display:none and leaves the chart visible on every tab. */
-#chart.tab-content:not(.active) {
-    display: none;
-}
-
+/* Chart tab when active: flex layout with full height */
 #chart.tab-content.active {
     display: flex;
     flex-direction: column;
+    height: calc(100vh - 100px);
+    min-height: 680px;
+    overflow: hidden;
+}
+
+/* All other active tab-content elements get block display + fade */
+.tab-content.active:not(#chart) {
+    display: block;
+    animation: fadeIn 0.3s ease;
+}
+
+/* Hide chart tab when it is NOT the active tab */
+#chart.tab-content:not(.active) {
+    display: none;
 }
 
 .chart-layout {

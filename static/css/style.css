@@ -2720,8 +2720,6 @@ body { --chart-bg: var(--bg-card); }
     100% { transform: translateX(-50%); }
 }
 
-/* ===== AUTO-REFRESH INDICATOR ===== */
-.auto-refresh-badge {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -2734,7 +2732,6 @@ body { --chart-bg: var(--bg-card); }
     font-family: 'JetBrains Mono', monospace;
 }
 
-.auto-refresh-badge::before {
     content: '🔄';
     font-size: 10px;
 }

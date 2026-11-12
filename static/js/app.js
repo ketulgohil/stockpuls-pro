@@ -577,6 +577,27 @@ function initChartChart() {
     initChartDrawingEvents();
 }
 
+// Overlay for loading failures. Kept separate from the chart canvas so a
+// failed load does not detach the chart and blank it permanently.
+function showChartOverlayChart(html) {
+    const container = document.getElementById('chartContainerChart');
+    if (!container) return;
+    let overlay = container.querySelector('.chart-state-overlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.className = 'chart-state-overlay';
+        overlay.style.cssText = 'position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:20; padding:16px; background:rgba(10,10,15,0.9); text-align:center;';
+        container.appendChild(overlay);
+    }
+    overlay.innerHTML = html;
+}
+
+function clearChartOverlayChart() {
+    const container = document.getElementById('chartContainerChart');
+    const overlay = container && container.querySelector('.chart-state-overlay');
+    if (overlay) overlay.remove();
+}
+
 // Load chart data for dedicated view
 // Timeframe → period/interval mapping
 // period = how much historical data to fetch, interval = candle granularity
@@ -668,8 +689,7 @@ async function loadChartChart() {
             if (data.error && data.error.includes('not found')) {
                 suggestion = '<p class="placeholder" style="font-size:11px; margin-top:4px;">Try searching for the stock in the search box or try a different symbol.</p>';
             }
-            document.getElementById('chartContainerChart').innerHTML = '<p class="placeholder">' + msg + '</p>' + suggestion;
-            chartLoadingLock = false;
+            showChartOverlayChart('<p class="placeholder">' + msg + '</p>' + suggestion);
             return;
         }
 
@@ -705,6 +725,7 @@ async function loadChartChart() {
         candleSeriesChart.setData(candles);
         volumeSeriesChart.setData(volumes);
         chartChart.timeScale().fitContent();
+        clearChartOverlayChart();
 
         // Draw ORB levels for intraday
         const isIntraday = ['5m', '15m', '30m', '1h'].includes(tf);
@@ -733,7 +754,7 @@ async function loadChartChart() {
     } catch (err) {
         console.error('[loadChartChart] ERROR:', err);
         if (loadingEl) loadingEl.style.display = 'none';
-        document.getElementById('chartContainerChart').innerHTML = '<p class="placeholder">Error loading chart: ' + err.message + '</p>';
+        showChartOverlayChart('<p class="placeholder">Error loading chart: ' + err.message + '</p>');
     } finally {
         console.log('[loadChartChart] FINALLY - releasing lock');
         chartLoadingLock = false;
@@ -855,7 +876,7 @@ function updateVwapSeriesChart(candles) {
     if (!result) return;
     const keys = ['vwap', 'upper1', 'lower1', 'upper2', 'lower2'];
     keys.forEach(k => {
-        if (vwapSeriesChart[key]) vwapSeriesChart[key].setData(result[k] || []);
+        if (vwapSeriesChart[k]) vwapSeriesChart[k].setData(result[k] || []);
     });
 }
 

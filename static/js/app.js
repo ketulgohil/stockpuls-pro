@@ -6149,6 +6149,369 @@ function initTraderDesk() {
     _tdStripTimer = setInterval(_tdUpdateStrip, 1000);
     tdFetchMarketPhase();
     _tdPhaseTimer = setInterval(tdFetchMarketPhase, 30000);
+    tdInitEntryTimer();
+}
+
+// ===== TRADER DESK: Scanner =====
+const TD_SETUP_LABELS = {
+    breakout_20d: '20d-high breakout',
+    bull_flag: 'bull flag',
+    reclaim_ma20: 'reclaimed MA20',
+    oversold: 'oversold (RSI<30)',
+    oversold_bounce: 'oversold bounce',
+};
+
+async function tdResolveUniverse() {
+    const sel = document.getElementById('tdScanUniverse');
+    const mode = sel ? sel.value : 'core';
+    if (mode === 'core') return null; // server default = curated ALL_SYMBOLS
+    try {
+        if (mode === 'nifty50') {
+            const data = await api('/api/scanner/universe');
+            return (data.universe || []).slice(0, 50).map(u => u.symbol);
+        }
+        const data = await api('/api/scanner/universe?full=true');
+        return (data.universe || []).map(u => u.symbol);
+    } catch (e) {
+        showToast('Could not load universe: ' + (e.message || e), 'error');
+        return null;
+    }
+}
+
+function tdOnScanTypeChange() {
+    const type = document.getElementById('tdScanType')?.value || 'orb';
+    const wrap = document.getElementById('tdOrMinutesWrap');
+    if (wrap) wrap.style.display = type === 'orb' ? '' : 'none';
+    const title = document.getElementById('tdScanTitle');
+    if (title) title.textContent = type === 'orb' ? 'ORB Breakout Hits' : 'Daily Setup Hits';
+}
+
+async function runTdScan() {
+    const type = document.getElementById('tdScanType')?.value || 'orb';
+    const badge = document.getElementById('tdScanBadge');
+    const btn = document.getElementById('tdScanBtn');
+    const results = document.getElementById('tdScanResults');
+    if (!badge || !btn) return;
+
+    const body = { min_price: parseFloat(document.getElementById('tdMinPrice')?.value) || 50 };
+    const minVol = parseInt(document.getElementById('tdMinVolume')?.value, 10);
+    if (minVol > 0) body.min_volume = minVol;
+    if (type === 'orb') body.or_minutes = parseInt(document.getElementById('tdOrMinutes')?.value, 10) || 15;
+    const symbols = await tdResolveUniverse();
+    if (symbols) {
+        body.symbols = symbols;
+        if (symbols.length > 150) showToast('Scanning ' + symbols.length + ' symbols — this can take a few minutes…', 'info');
+    }
+
+    badge.textContent = 'scanning…';
+    badge.className = 'badge';
+    btn.disabled = true;
+    if (results) results.innerHTML = '<p class="placeholder">Scanning ' + (symbols ? symbols.length : 'core universe') + ' symbols via Upstox…</p>';
+    try {
+        const data = await api('/api/scanner/' + type, { method: 'POST', body: JSON.stringify(body) });
+        if (!data || data.error || (!data.hits && data.detail)) {
+            const msg = (data && (data.detail || data.error)) || 'Scan failed';
+            showToast(msg, 'error');
+            badge.textContent = 'error';
+            badge.className = 'badge negative';
+            if (results) results.innerHTML = '<p class="placeholder">' + msg + '</p>';
+            return;
+        }
+        tdRenderScan(data, type);
+    } catch (e) {
+        showToast('Scan failed: ' + (e.message || e), 'error');
+        badge.textContent = 'error';
+        if (results) results.innerHTML = '<p class="placeholder">Scan failed: ' + (e.message || e) + '</p>';
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+function tdRenderScan(data, type) {
+    const badge = document.getElementById('tdScanBadge');
+    const meta = document.getElementById('tdScanMeta');
+    const wrap = document.getElementById('tdScanResults');
+    if (!wrap) return;
+
+    const hits = data.hits || [];
+    const counts = data.counts || {};
+    const isOrb = type === 'orb';
+
+    if (meta) {
+        meta.textContent = (hits.length + ' hits · scanned ' + (counts.scanned || 0) + '/' + (counts.requested || data.universe || 0) +
+            (counts.failed ? ' · failed ' + counts.failed : '') + ' · as of ' + (data.as_of || '—') + ' · Upstox') +
+            (isOrb ? ' · OR' + (data.or_minutes || 15) + 'm' : '');
+    }
+
+    if (badge) {
+        badge.textContent = hits.length + ' hits';
+        badge.className = 'badge' + (hits.length ? ' positive' : '');
+    }
+
+    if (!hits.length) {
+        wrap.innerHTML = '<p class="placeholder">No setups passed the filters. Loosen min price / range ratio and re-run.</p>';
+        return;
+    }
+
+    const header = isOrb
+        ? '<tr><th>Symbol</th><th>Triggered</th><th>Price</th><th>OR High</th><th>OR Low</th><th>Range %</th><th>Over High</th><th>Actions</th></tr>'
+        : '<tr><th>Symbol</th><th>Setups</th><th>Price</th><th>RSI</th><th>MA20</th><th>20d High</th><th>Actions</th></tr>';
+
+    const rows = hits.map(h => {
+        const sym = h.symbol;
+        const live = '<span data-live-price>₹' + fmtPrice(h.price) + '</span> <span data-live-change-pct class="muted"></span>';
+        const actions =
+            '<button class="btn-secondary td-row-btn" onclick="tdWatchFromScan(\'' + sym + '\')" title="Watch entry trigger">⏱ Entry</button>' +
+            '<button class="btn-secondary td-row-btn" onclick="tdPlanFromScan(\'' + sym + '\',' + (h.or_high || h.price) + ',' + (h.or_low || h.price) + ')" title="Plan exit (Exit Planner)">🎯 Exit</button>';
+        if (isOrb) {
+            return '<tr class="td-hit-row" data-live-symbol="' + sym + '">' +
+                '<td><a href="#" onclick="openStockChart(\'' + sym + '\'); return false;"><b>' + sym.replace('.NS', '') + '</b></a></td>' +
+                '<td>' + (h.at || '') + '</td>' +
+                '<td>' + live + '</td>' +
+                '<td>₹' + fmtPrice(h.or_high) + '</td>' +
+                '<td>₹' + fmtPrice(h.or_low) + '</td>' +
+                '<td>' + (h.range_ratio_pct != null ? h.range_ratio_pct + '%' : '—') + '</td>' +
+                '<td class="' + ((h.pct_over || 0) >= 0 ? 'positive' : 'negative') + '">' + (h.pct_over != null ? '+' + h.pct_over + '%' : '—') + '</td>' +
+                '<td class="td-actions-cell">' + actions + '</td></tr>';
+        }
+        const setups = (h.setups || []).map(s => '<span class="td-chip td-chip-no-data">' + (TD_SETUP_LABELS[s] || s) + '</span>').join(' ');
+        return '<tr class="td-hit-row" data-live-symbol="' + sym + '">' +
+            '<td><a href="#" onclick="openStockChart(\'' + sym + '\'); return false;"><b>' + sym.replace('.NS', '') + '</b></a></td>' +
+            '<td>' + setups + '</td>' +
+            '<td>' + live + '</td>' +
+            '<td>' + (h.rsi != null ? h.rsi : '—') + '</td>' +
+            '<td>' + (h.ma20 != null ? '₹' + fmtPrice(h.ma20) : '—') + '</td>' +
+            '<td>' + (h.high20 != null ? '₹' + fmtPrice(h.high20) : '—') + '</td>' +
+            '<td class="td-actions-cell">' + actions + '</td></tr>';
+    }).join('');
+
+    wrap.innerHTML =
+        '<p class="td-note">💡 ' + (data.note || '') + '</p>' +
+        '<div class="table-container"><table><thead>' + header + '</thead><tbody>' + rows + '</tbody></table></div>';
+
+    applyLiveDomQuotes(wrap);
+    refreshLiveSubscriptions();
+}
+
+function tdWatchFromScan(symbol) {
+    tdAddToEntryWatch({ symbol: symbol, setup: 'orb' });
+    showToast(symbol.replace('.NS', '') + ' added to Entry Timer (ORB watch)', 'success');
+}
+
+function tdPlanFromScan(symbol, orHigh, orLow) {
+    showToast('Exit Planner arrives in the next build — OR high ₹' + fmtPrice(orHigh) + ' / low ₹' + fmtPrice(orLow) + ' noted for ' + symbol.replace('.NS', ''), 'info');
+}
+
+// ===== TRADER DESK: Entry Timer =====
+const TD_ENTRY_WATCH_KEY = 'tdEntryWatch';
+let tdEntryState = {};      // symbol -> last check result
+let tdEntryPollTimer = null;
+let tdEntryChecking = false;
+
+function tdLoadEntryWatch() {
+    try {
+        const raw = JSON.parse(localStorage.getItem(TD_ENTRY_WATCH_KEY) || '[]');
+        return Array.isArray(raw) ? raw.filter(w => w && w.symbol) : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function tdSaveEntryWatch(list) {
+    localStorage.setItem(TD_ENTRY_WATCH_KEY, JSON.stringify(list.slice(0, 25)));
+}
+
+function tdInitEntryTimer() {
+    tdRenderEntryWatch();
+    tdApplyEntryPoll();
+}
+
+function tdOnEntrySetupChange() {
+    const setup = document.getElementById('tdEntrySetup')?.value || 'orb';
+    const wrap = document.getElementById('tdEntryLevelWrap');
+    if (wrap) wrap.style.display = setup === 'level' ? '' : 'none';
+}
+
+function tdAddEntryWatch() {
+    const input = document.getElementById('tdEntrySymbol');
+    if (!input) return;
+    let sym = (input.value || '').trim().toUpperCase();
+    if (!sym) { showToast('Enter a symbol first', 'warning'); return; }
+    if (!sym.includes('.')) sym = sym + '.NS';
+    const setup = document.getElementById('tdEntrySetup')?.value || 'orb';
+    const item = { symbol: sym, setup: setup };
+    if (setup === 'level') {
+        const lvl = parseFloat(document.getElementById('tdEntryLevel')?.value);
+        if (!lvl || lvl <= 0) { showToast('Enter the price level to watch', 'warning'); return; }
+        item.level = lvl;
+    }
+    tdAddToEntryWatch(item);
+    input.value = '';
+    showToast(sym.replace('.NS', '') + ' (' + (setup === 'orb' ? 'ORB' : 'level ' + item.level) + ') added to Entry Timer', 'success');
+}
+
+function tdAddToEntryWatch(item) {
+    const list = tdLoadEntryWatch();
+    const existing = list.findIndex(w => w.symbol === item.symbol);
+    if (existing >= 0) list[existing] = item; else list.push(item);
+    tdSaveEntryWatch(list);
+    tdRenderEntryWatch();
+    // immediate first check so the user sees status right away
+    tdCheckEntry(item.symbol);
+}
+
+function tdRemoveEntryWatch(symbol) {
+    tdSaveEntryWatch(tdLoadEntryWatch().filter(w => w.symbol !== symbol));
+    delete tdEntryState[symbol];
+    tdRenderEntryWatch();
+    refreshLiveSubscriptions();
+}
+
+function tdClearEntryWatch() {
+    tdSaveEntryWatch([]);
+    tdEntryState = {};
+    tdRenderEntryWatch();
+    if (tdEntryPollTimer) { clearInterval(tdEntryPollTimer); tdEntryPollTimer = null; }
+    refreshLiveSubscriptions();
+}
+
+function tdApplyEntryPoll() {
+    const sel = document.getElementById('tdEntryPollSecs');
+    const secs = sel ? parseInt(sel.value, 10) : 60;
+    if (tdEntryPollTimer) { clearInterval(tdEntryPollTimer); tdEntryPollTimer = null; }
+    if (secs > 0) tdEntryPollTimer = setInterval(tdCheckAllEntries, secs * 1000);
+}
+
+async function tdCheckAllEntries() {
+    const list = tdLoadEntryWatch();
+    if (!list.length) return;
+    await Promise.all(list.map(w => tdCheckEntry(w.symbol)));
+}
+
+function _tdSessionOpenNow() {
+    const ist = _tdIstParts();
+    if (['Sat', 'Sun'].includes(ist.weekday)) return false;
+    const mod = ist.h * 60 + ist.m;
+    return mod >= TD_ORB_START && mod <= 15 * 60 + 30;
+}
+
+async function tdCheckEntry(symbol) {
+    const w = tdLoadEntryWatch().find(x => x.symbol === symbol);
+    if (!w) return;
+    const body = {
+        symbol: w.symbol,
+        setup: w.setup || 'orb',
+        or_minutes: 15,
+        interval: '5m',
+        min_volume_x: 1.25,
+    };
+    if (w.setup === 'level' && w.level) body.level = w.level;
+    try {
+        const data = await api('/api/entry/check', { method: 'POST', body: JSON.stringify(body) });
+        if (!data || data.error || data.detail) {
+            tdEntryState[symbol] = { status: 'no-data', reason: (data && (data.detail || data.error)) || 'check failed', at: new Date().toISOString() };
+        } else {
+            const prev = tdEntryState[symbol];
+            tdEntryState[symbol] = data;
+            // Alert on transition into "triggered" only
+            if (data.status === 'triggered' && (!prev || prev.status !== 'triggered')) {
+                tdAnnounceTrigger(data);
+            }
+        }
+    } catch (e) {
+        tdEntryState[symbol] = { status: 'no-data', reason: 'network error: ' + (e.message || e) };
+    }
+    tdRenderEntryWatch();
+}
+
+function tdAnnounceTrigger(data) {
+    const sym = (data.symbol || '').replace('.NS', '');
+    const t = data.trigger || {};
+    const lvlName = data.setup === 'orb' ? 'the ' + (data.or_minutes || 15) + 'm range high' : 'the level';
+    const priceTxt = t.price != null ? ' @ ₹' + fmtPrice(t.price) : '';
+    showToast('🚨 ' + sym + ' TRIGGERED — closed above ' + lvlName + priceTxt + (t.time ? ' (' + t.time + ')' : ''), 'success');
+    tdPlayChime();
+    const row = document.querySelector('#tdEntryResults tr[data-symbol="' + data.symbol + '"]');
+    if (row) { row.classList.remove('td-flash'); void row.offsetWidth; row.classList.add('td-flash'); }
+}
+
+function tdPlayChime() {
+    try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        if (!tdAudioCtx) tdAudioCtx = new AC();
+        if (tdAudioCtx.state === 'suspended') tdAudioCtx.resume();
+        const now = tdAudioCtx.currentTime;
+        [[660, 0], [990, 0.15]].forEach(([freq, offset]) => {
+            const osc = tdAudioCtx.createOscillator();
+            const gain = tdAudioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, now + offset);
+            gain.gain.setValueAtTime(0.15, now + offset);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + offset + 0.25);
+            osc.connect(gain);
+            gain.connect(tdAudioCtx.destination);
+            osc.start(now + offset);
+            osc.stop(now + offset + 0.3);
+        });
+    } catch (e) { /* audio is best-effort */ }
+}
+let tdAudioCtx = null;
+
+const TD_STATUS_CHIP = {
+    waiting: ['td-chip td-chip-waiting', 'WAITING'],
+    triggered: ['td-chip td-chip-triggered', 'TRIGGERED'],
+    expired: ['td-chip td-chip-expired', 'EXPIRED'],
+    'no-data': ['td-chip td-chip-no-data', 'NO DATA'],
+};
+
+function tdRenderEntryWatch() {
+    const wrap = document.getElementById('tdEntryResults');
+    const badge = document.getElementById('tdEntryBadge');
+    if (!wrap) return;
+    const list = tdLoadEntryWatch();
+
+    if (badge) {
+        const triggered = list.filter(w => (tdEntryState[w.symbol] || {}).status === 'triggered').length;
+        badge.textContent = list.length ? (triggered ? triggered + ' triggered' : list.length + ' watched') : 'idle';
+        badge.className = 'badge' + (triggered ? ' positive' : '');
+    }
+
+    if (!list.length) {
+        wrap.innerHTML = '<p class="placeholder">No symbols watched yet. Add one above, or from Scanner hits.</p>';
+        return;
+    }
+
+    const rows = list.map(w => {
+        const st = tdEntryState[w.symbol] || {};
+        const status = st.status || '…';
+        const [chipClass, chipLabel] = TD_STATUS_CHIP[status] || ['td-chip td-chip-no-data', '…'];
+        const or = st.opening_range;
+        const orTxt = or ? 'OR ₹' + fmtPrice(or.high) + ' / ₹' + fmtPrice(or.low) + (or.avg_volume ? ' · avg vol ' + or.avg_volume.toLocaleString('en-IN') : '') : '—';
+        const trig = st.trigger;
+        const detail = status === 'triggered' && trig
+            ? '<span class="positive">bar ' + (trig.time || trig.bar_start || '') + ' @ ₹' + fmtPrice(trig.price) + '</span>'
+            : status === 'waiting'
+                ? (st.last ? 'last bar ₹' + fmtPrice(st.last.close) + ' (' + (st.last.bar_start || '') + ')' : '')
+                : (st.reason || '');
+        const lvlTxt = w.setup === 'level' ? ' level ₹' + fmtPrice(w.level) : '';
+        return '<tr class="td-hit-row" data-symbol="' + w.symbol + '" data-live-symbol="' + w.symbol + '">' +
+            '<td><a href="#" onclick="openStockChart(\'' + w.symbol + '\'); return false;"><b>' + w.symbol.replace('.NS', '') + '</b></a></td>' +
+            '<td>' + (w.setup === 'orb' ? 'ORB' + lvlTxt : 'Level') + '</td>' +
+            '<td><span class="' + chipClass + '">' + chipLabel + '</span></td>' +
+            '<td><span data-live-price>—</span> <span data-live-change-pct class="muted"></span></td>' +
+            '<td class="muted">' + orTxt + '</td>' +
+            '<td>' + detail + '</td>' +
+            '<td><button class="btn-secondary td-row-btn" onclick="tdRemoveEntryWatch(\'' + w.symbol + '\')" title="Remove">✕</button></td>' +
+            '</tr>';
+    }).join('');
+
+    wrap.innerHTML =
+        '<div class="table-container"><table><thead><tr><th>Symbol</th><th>Setup</th><th>Status</th><th>LTP</th><th>Opening Range</th><th>Detail</th><th></th></tr></thead><tbody>' +
+        rows + '</tbody></table></div>';
+
+    applyLiveDomQuotes(wrap);
+    refreshLiveSubscriptions();
 }
 
 const UpstoxDesk = {

@@ -133,9 +133,24 @@ def find_setups(closes):
 
 
 @router.get("/universe")
-def scanner_universe():
-    """Return the Nifty 50 universe (symbol, name)."""
+def scanner_universe(full: bool = False, auth: bool = Depends(verify_api_key)):
+    """Return the scan universe.
+
+    Default: the curated ALL_SYMBOLS list. ``full=true`` returns every
+    NSE equity instrument Upstox provides (slower scans, use with care).
+    """
     from core.data_fetcher import ALL_SYMBOLS, SECTOR_MAP
+    if full:
+        from core import upstox_data
+        instruments = upstox_data.ensure_instruments()
+        universe = []
+        for clean, entry in sorted(instruments.items()):
+            universe.append({
+                "symbol": "%s.NS" % clean,
+                "name": entry.get("short_name") or entry.get("name") or clean,
+                "sector": "Unknown",
+            })
+        return {"count": len(universe), "universe": universe, "full": True}
     universe = []
     for sym in ALL_SYMBOLS:
         name = sym.replace(".NS", "")
@@ -162,6 +177,9 @@ def scanner_daily(req: DailyScanRequest, auth: bool = Depends(verify_api_key)):
 
         hits = []
         counts = {"requested": len(symbols), "fetched": 0, "illiquid": 0, "short": 0, "scanned": 0, "hits": 0}
+        # Before 09:15 IST the live quote volume is a partial pre-open print;
+        # a daily-volume floor makes no sense yet, so skip it pre-open.
+        pre_open = now.time() < OPEN
 
         for sym in symbols:
             clean = sym.replace(".NS", "")
@@ -183,14 +201,17 @@ def scanner_daily(req: DailyScanRequest, auth: bool = Depends(verify_api_key)):
             else:
                 last_date_str = str(last_date)[:10]
 
-            # Price / volume floor
+            # Price / volume floor. Pre-open the live quote has no price yet,
+            # so fall back to the last daily close (this is a pre-market scan).
             info = upstox_data.get_quote(sym)
-            price = info.get("price") if info else last_close
+            price = info.get("price") if info else None
+            if price is None:
+                price = last_close
             volume = info.get("volume") if info else 0
             if price is None or price < req.min_price:
                 counts["illiquid"] += 1
                 continue
-            if req.min_volume > 0 and (volume is None or volume < req.min_volume):
+            if req.min_volume > 0 and not pre_open and (volume is None or volume < req.min_volume):
                 counts["illiquid"] += 1
                 continue
 

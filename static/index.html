@@ -1353,10 +1353,53 @@
                     <div id="td-scanner" class="td-sub-content active">
                         <div class="card">
                             <div class="card-header">
-                                <h3>Scanner</h3>
-                                <span class="badge" id="tdScannerBadge">idle</span>
+                                <h3>Scan Controls</h3>
+                                <span class="badge" id="tdScanBadge">idle</span>
                             </div>
-                            <p class="placeholder">ORB and daily setup scans across the universe — coming next.</p>
+                            <div class="td-controls">
+                                <div class="filter-group">
+                                    <label>Scan Type</label>
+                                    <select id="tdScanType" onchange="tdOnScanTypeChange()">
+                                        <option value="orb">ORB — Opening Range Breakout</option>
+                                        <option value="daily">Daily Setups</option>
+                                    </select>
+                                </div>
+                                <div class="filter-group">
+                                    <label>Universe</label>
+                                    <select id="tdScanUniverse">
+                                        <option value="core">Core universe (fast)</option>
+                                        <option value="nifty50">Nifty 50</option>
+                                        <option value="full">All instruments (slow)</option>
+                                    </select>
+                                </div>
+                                <div class="filter-group" id="tdOrMinutesWrap">
+                                    <label>Opening Range</label>
+                                    <select id="tdOrMinutes">
+                                        <option value="15">15 minutes</option>
+                                        <option value="5">5 minutes</option>
+                                        <option value="30">30 minutes</option>
+                                    </select>
+                                </div>
+                                <div class="filter-group">
+                                    <label>Min Price (₹)</label>
+                                    <input type="number" id="tdMinPrice" value="50" min="0" step="10">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Min Volume</label>
+                                    <input type="number" id="tdMinVolume" value="0" min="0" step="50000">
+                                </div>
+                                <div class="filter-group td-actions-row">
+                                    <button class="btn-primary" id="tdScanBtn" onclick="runTdScan()">Run Scan</button>
+                                </div>
+                            </div>
+                            <p class="td-note" id="tdScanMeta">A scan is a list of charts that match a rule — not a list of stocks to buy.</p>
+                        </div>
+
+                        <div class="card mt-2">
+                            <div class="card-header">
+                                <h3 id="tdScanTitle">ORB Breakout Hits</h3>
+                            </div>
+                            <div id="tdScanResults"><p class="placeholder">Run a scan to see setups.</p></div>
                         </div>
                     </div>
 
@@ -1364,10 +1407,48 @@
                     <div id="td-entry" class="td-sub-content">
                         <div class="card">
                             <div class="card-header">
-                                <h3>Entry Timer</h3>
+                                <h3>Trigger Watchlist</h3>
                                 <span class="badge" id="tdEntryBadge">idle</span>
                             </div>
-                            <p class="placeholder">Bar-by-bar trigger watchlist with alerts — coming next.</p>
+                            <div class="td-controls">
+                                <div class="filter-group">
+                                    <label>Symbol</label>
+                                    <input type="text" id="tdEntrySymbol" placeholder="RELIANCE.NS">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Setup</label>
+                                    <select id="tdEntrySetup" onchange="tdOnEntrySetupChange()">
+                                        <option value="orb">ORB (range breakout)</option>
+                                        <option value="level">Price level breakout</option>
+                                    </select>
+                                </div>
+                                <div class="filter-group" id="tdEntryLevelWrap" style="display:none;">
+                                    <label>Level (₹)</label>
+                                    <input type="number" id="tdEntryLevel" step="0.05" placeholder="close above this">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Poll Interval</label>
+                                    <select id="tdEntryPollSecs" onchange="tdApplyEntryPoll()">
+                                        <option value="60">60 seconds</option>
+                                        <option value="120">2 minutes</option>
+                                        <option value="300">5 minutes</option>
+                                        <option value="0">Off (manual)</option>
+                                    </select>
+                                </div>
+                                <div class="filter-group td-actions-row">
+                                    <button class="btn-primary" onclick="tdAddEntryWatch()">Watch</button>
+                                    <button class="btn-secondary" onclick="tdCheckAllEntries()">Check Now</button>
+                                    <button class="btn-secondary" onclick="tdClearEntryWatch()">Clear</button>
+                                </div>
+                            </div>
+                            <p class="td-note">Statuses refresh automatically during the 09:15–15:30 IST session. <b>Triggered</b> = first 5m bar closed above the range high / level with volume ≥ 1.25× the opening-range average.</p>
+                        </div>
+
+                        <div class="card mt-2">
+                            <div class="card-header">
+                                <h3>Entry Status</h3>
+                            </div>
+                            <div id="tdEntryResults"><p class="placeholder">No symbols watched yet. Add one above, or from Scanner hits.</p></div>
                         </div>
                     </div>
 

@@ -5002,3 +5002,54 @@ body { --chart-bg: var(--bg-card); }
 }
 
 .td-flash { animation: tdFlash 1s ease-in-out 3; }
+
+/* Trader Desk controls */
+.td-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-end;
+    margin-bottom: 10px;
+}
+
+.td-controls .filter-group {
+    min-width: 150px;
+    flex: 0 1 180px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.td-controls .filter-group label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.td-actions-row {
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 8px !important;
+}
+
+.td-note {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin: 6px 0 0 0;
+}
+
+.td-row-btn {
+    padding: 4px 10px;
+    font-size: 12px;
+    border-radius: 6px;
+}
+
+.td-actions-cell {
+    white-space: nowrap;
+    display: flex;
+    gap: 6px;
+}
+
+.muted { color: var(--text-secondary); }

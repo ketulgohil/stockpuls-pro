@@ -1,6 +1,6 @@
 import pandas as pd
 from typing import Optional
-from core.data_fetcher import get_stock_data, NIFTY50_SYMBOLS
+from core.data_fetcher import ALL_SYMBOLS, get_stock_data
 from core.indicators import add_all_indicators
 
 
@@ -145,7 +145,7 @@ def generate_signals(symbol: str) -> list[dict]:
 def get_all_signals() -> list[dict]:
     all_signals = []
 
-    for symbol in NIFTY50_SYMBOLS[:20]:
+    for symbol in ALL_SYMBOLS[:30]:
         signals = generate_signals(symbol)
         for signal in signals:
             signal["symbol"] = symbol

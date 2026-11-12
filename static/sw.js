@@ -1,30 +1,46 @@
-const CACHE_NAME = 'stockpulse-v5';
-const STATIC_ASSETS = [
-    '/',
-    '/static/css/style.css',
-    '/static/js/app.js',
-    '/static/manifest.json'
-];
+// Self-destructing service worker.
+//
+// Earlier versions of this app registered a cache-first service worker under
+// the fixed cache name "stockpulse-v5". That meant browsers kept serving an
+// old index.html / app.js forever, so live-price UI fixes never appeared.
+//
+// This worker removes every cache, unregisters itself, and reloads open tabs
+// so they load fresh files straight from the server. The app no longer
+// registers a service worker.
 
-self.addEventListener('install', (event) => {
-    event.waitUntil(
-        caches.open(CACHE_NAME).then(cache => cache.addAll(STATIC_ASSETS))
-    );
+self.addEventListener('install', () => {
     self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
-    event.waitUntil(
-        caches.keys().then(keys => Promise.all(
-            keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
-        ))
-    );
-    self.clients.claim();
+    event.waitUntil((async () => {
+        try {
+            const keys = await caches.keys();
+            await Promise.all(keys.map((key) => caches.delete(key)));
+        } catch (err) {
+            // Ignore cache cleanup failures.
+        }
+
+        try {
+            await self.registration.unregister();
+        } catch (err) {
+            // Ignore unregister failures.
+        }
+
+        try {
+            const clients = await self.clients.matchAll({ type: 'window' });
+            clients.forEach((client) => {
+                try {
+                    client.navigate(client.url);
+                } catch (err) {
+                    // Ignore navigation failures.
+                }
+            });
+        } catch (err) {
+            // Ignore client enumeration failures.
+        }
+    })());
 });
 
-self.addEventListener('fetch', (event) => {
-    if (event.request.url.includes('/api/')) return;
-    event.respondWith(
-        caches.match(event.request).then(cached => cached || fetch(event.request))
-    );
-});
+// Pass everything straight to the network while this worker is still alive.
+self.addEventListener('fetch', () => {});

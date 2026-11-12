@@ -1,12 +1,12 @@
 import pandas as pd
 from typing import Optional
 from core import upstox_data
-from core.data_fetcher import NIFTY50_SYMBOLS, get_stock_data
+from core.data_fetcher import ALL_SYMBOLS, get_stock_data
 from core.indicators import add_all_indicators
 
 
 def get_market_breadth() -> dict:
-    symbols = NIFTY50_SYMBOLS
+    symbols = ALL_SYMBOLS
 
     advancing = 0
     declining = 0

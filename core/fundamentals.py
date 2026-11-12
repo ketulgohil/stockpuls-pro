@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 from core import upstox_data
-from core.data_fetcher import NIFTY50_SYMBOLS, get_stock_info
+from core.data_fetcher import ALL_SYMBOLS, get_stock_info
 from core.downstox import get_fii_dii
 
 
@@ -11,7 +11,7 @@ def get_earnings_calendar(days: int = 30) -> list[dict]:
 
 
 def get_dividend_stocks() -> list[dict]:
-    symbols = NIFTY50_SYMBOLS
+    symbols = ALL_SYMBOLS
 
     dividend_stocks = []
 

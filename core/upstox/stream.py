@@ -6,6 +6,8 @@ from core.upstox.client import UpstoxClient
 
 logger = logging.getLogger("upstox_stream")
 
+from core.data_fetcher import ALL_SYMBOLS
+
 NIFTY50_SYMBOLS = [
     "RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK",
     "HINDUNILVR", "SBIN", "BHARTIARTL", "ITC", "KOTAKBANK",
@@ -26,7 +28,7 @@ class UpstoxMarketEngine:
     """
     def __init__(self, client: Optional[UpstoxClient] = None, symbols: Optional[List[str]] = None):
         self.client = client or UpstoxClient()
-        self.symbols = symbols or NIFTY50_SYMBOLS
+        self.symbols = symbols or ALL_SYMBOLS
         self._quotes: Dict[str, dict] = {}
         self._ticks: Dict[str, List[dict]] = {}  # raw ticks per symbol
         self._candles_5m: Dict[str, List[dict]] = {}  # aggregated 5m candles per symbol

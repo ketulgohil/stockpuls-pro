@@ -1,6 +1,6 @@
 import pandas as pd
 from typing import Optional
-from core.data_fetcher import get_stock_data, NIFTY50_SYMBOLS
+from core.data_fetcher import ALL_SYMBOLS, get_stock_data
 from core.indicators import add_all_indicators
 
 
@@ -16,7 +16,7 @@ def screen_stocks(
 ) -> list[dict]:
     results = []
 
-    for symbol in NIFTY50_SYMBOLS[:30]:
+    for symbol in ALL_SYMBOLS[:50]:
         try:
             df = get_stock_data(symbol, period="3mo")
             if df is None or df.empty:

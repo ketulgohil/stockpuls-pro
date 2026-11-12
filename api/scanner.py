@@ -135,9 +135,9 @@ def find_setups(closes):
 @router.get("/universe")
 def scanner_universe():
     """Return the Nifty 50 universe (symbol, name)."""
-    from core.data_fetcher import SECTOR_MAP
+    from core.data_fetcher import ALL_SYMBOLS, SECTOR_MAP
     universe = []
-    for sym in NIFTY50_SYMBOLS:
+    for sym in ALL_SYMBOLS:
         name = sym.replace(".NS", "")
         universe.append({
             "symbol": sym,
@@ -156,7 +156,7 @@ def scanner_daily(req: DailyScanRequest, auth: bool = Depends(verify_api_key)):
         if not cal.is_trading_day(now.date()):
             raise ScannerError("Market is closed today (%s). Daily scan runs on trading days." % now.date())
 
-        symbols = req.symbols or NIFTY50_SYMBOLS
+        symbols = req.symbols or ALL_SYMBOLS
         if req.limit:
             symbols = symbols[:req.limit]
 
@@ -268,7 +268,7 @@ def scanner_orb(req: OrbScanRequest, auth: bool = Depends(verify_api_key)):
             )
 
         n_range = req.or_minutes // BAR_MIN
-        symbols = req.symbols or NIFTY50_SYMBOLS
+        symbols = req.symbols or ALL_SYMBOLS
         if req.max_confirm:
             symbols = symbols[:req.max_confirm]
 

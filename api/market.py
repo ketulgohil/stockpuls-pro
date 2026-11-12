@@ -1,7 +1,7 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from core import upstox_data
-from core.data_fetcher import NIFTY50_SYMBOLS
+from core.data_fetcher import ALL_SYMBOLS
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 
@@ -50,14 +50,33 @@ def _mover_row(quote: dict) -> dict:
 
 @router.get("/top-gainers")
 def top_gainers():
-    movers = upstox_data.get_top_movers(NIFTY50_SYMBOLS, limit=10)
+    movers = upstox_data.get_top_movers(ALL_SYMBOLS, limit=10)
     return {"gainers": [_mover_row(q) for q in movers.get("gainers", [])]}
 
 
 @router.get("/top-losers")
 def top_losers():
-    movers = upstox_data.get_top_movers(NIFTY50_SYMBOLS, limit=10)
+    movers = upstox_data.get_top_movers(ALL_SYMBOLS, limit=10)
     return {"losers": [_mover_row(q) for q in movers.get("losers", [])]}
+
+
+@router.get("/quotes")
+def market_quotes(symbols: str = Query("", description="Comma-separated symbols")):
+    """Batch quote lookup used as a REST fallback when the WebSocket is unavailable."""
+    requested = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+    if not requested:
+        requested = list(INDEX_META)
+    requested = requested[:200]
+
+    quotes = upstox_data.get_quotes(requested)
+    prices = {}
+    for symbol, quote in quotes.items():
+        prices[symbol] = {
+            "price": quote.get("price", 0),
+            "change": quote.get("change", 0),
+            "changePercent": quote.get("changePercent", 0),
+        }
+    return {"prices": prices, "count": len(prices)}
 
 
 @router.get("/pulse")

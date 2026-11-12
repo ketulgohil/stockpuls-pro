@@ -236,8 +236,16 @@ function showTab(tabName) {
 // Chart Functions
 function initChart() {
     const container = document.getElementById('chartContainer');
-    if (!container) return;
-    
+    if (!container) {
+        // The legacy dashboard chart was replaced by the pro chart
+        // (#chartContainerChart). Initialise that one instead so the chart tab
+        // and the topbar Refresh button keep working.
+        if (typeof initChartChart === 'function' && typeof LightweightCharts !== 'undefined' && !chartChart) {
+            initChartChart();
+        }
+        return;
+    }
+
     chart = LightweightCharts.createChart(container, {
         width: container.clientWidth,
         height: 400,
@@ -327,6 +335,13 @@ function initChart() {
 }
 
 async function loadChart() {
+    // Legacy chart container is gone; the Live Chart tab uses loadChartChart().
+    if (!document.getElementById('chartContainer')) {
+        if (typeof loadChartChart === 'function') {
+            return loadChartChart();
+        }
+        return;
+    }
     showLoading();
     try {
         const data = await api(`/api/stocks/${currentSymbol}/history?period=${currentTimeframe}`);
@@ -4788,7 +4803,7 @@ let ws = null;
 let wsReconnectAttempts = 0;
 const MAX_WS_RECONNECT = 5;
 const WS_INDEX_SYMBOLS = ['^NSEI', '^BSESN', '^NSEBANK', '^CNXIT', '^NSEMDCP50'];
-const WS_MAX_SYMBOLS = 500;
+const WS_MAX_SYMBOLS = 200;
 
 // Latest quote per symbol, shared by every page/table.
 const liveQuoteCache = new Map();
@@ -4796,6 +4811,7 @@ const liveQuoteCache = new Map();
 // Symbols rendered on the current DOM (market cards, watchlist, tables, ...).
 let liveDomSymbols = new Set();
 let lastWsSubscriptionKey = '';
+let lastWsMessageAt = 0;
 
 function getLiveQuote(symbol) {
     return liveQuoteCache.get(normalizeSymbol(symbol));
@@ -4872,8 +4888,11 @@ function connectWebSocket() {
     ws.onopen = function() {
         console.log('[WS] Connected to live prices');
         wsReconnectAttempts = 0;
+        lastWsMessageAt = Date.now();
         updateConnectionStatus('connected');
         lastWsSubscriptionKey = '';
+        // Pick up everything already rendered on the page before subscribing.
+        liveDomSymbols = collectLiveDomSymbols();
         sendWsSubscription(true);
         if (chartWsSymbols.size > 0) setChartWsStatus('connecting');
     };
@@ -4882,6 +4901,7 @@ function connectWebSocket() {
         try {
             const data = JSON.parse(event.data);
             if (data.prices) {
+                lastWsMessageAt = Date.now();
                 cacheLiveQuotes(data.prices);
                 updateMarketOverviewLive(data.prices);
                 updateMarketPulseFromLiveQuotes();
@@ -4922,6 +4942,42 @@ function connectWebSocket() {
         updateConnectionStatus('error');
         setChartWsStatus('error');
     };
+}
+
+// REST fallback for live quotes. If the WebSocket cannot deliver (proxy
+// blocking WS, extension, server restart, tab left open for days), batch-poll
+// the same symbols so prices still populate on every page.
+let liveFallbackTimer = null;
+let liveFallbackInFlight = false;
+
+function startLivePriceFallback() {
+    if (liveFallbackTimer) return;
+    liveFallbackTimer = setInterval(async () => {
+        const wsHealthy = ws && ws.readyState === WebSocket.OPEN &&
+            (Date.now() - lastWsMessageAt) < 12000;
+        if (wsHealthy || liveFallbackInFlight) return;
+
+        liveDomSymbols = collectLiveDomSymbols();
+        const symbols = buildWsSymbolList();
+        if (!symbols.length) return;
+
+        liveFallbackInFlight = true;
+        try {
+            const data = await api(
+                `/api/market/quotes?symbols=${encodeURIComponent(symbols.join(','))}`
+            );
+            if (data && data.prices) {
+                cacheLiveQuotes(data.prices);
+                updateMarketOverviewLive(data.prices);
+                updateMarketPulseFromLiveQuotes();
+                applyLiveDomQuotes();
+            }
+        } catch (err) {
+            // Silent: the WebSocket reconnect path keeps trying too.
+        } finally {
+            liveFallbackInFlight = false;
+        }
+    }, 8000);
 }
 
 function updateMarketOverviewLive(prices) {
@@ -5928,6 +5984,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(updateClock, 1000);           // Every second
     startLiveUpdates();
     startAutoRefreshGainersLosers();
+    startLivePriceFallback();
     startPortfolioTicker();
 
     // Refresh volume alerts every 5 minutes

@@ -17,8 +17,10 @@ from core.workflows.inngest_client import inngest_client
 from core.workflows.functions import inngest_functions
 from core.sentinel.dispatcher import dispatcher
 from core.sentinel.engine import sentinel_engine
+from core.upstox.stream import upstox_engine
 from core import upstox_data
 from core.data_fetcher import ALL_SYMBOLS, get_stock_data, get_live_price
+from core.upstox_data import ensure_instruments
 from core.trader_core import IST
 
 app = FastAPI(
@@ -31,10 +33,16 @@ app = FastAPI(
 async def startup_event():
     print("🚀 StockPulse Pro started successfully!")
     sentinel_engine.start()
+    if upstox_engine.client.is_authenticated:
+        upstox_engine.start()
+        print(f"📡 Upstox live engine started ({len(upstox_engine.symbols)} symbols)")
+    else:
+        print("⚠️  Upstox live engine not started: UPSTOX_ACCESS_TOKEN is not configured.")
 
 @app.on_event("shutdown")
 async def shutdown_event():
     sentinel_engine.stop()
+    upstox_engine.stop()
 
 app.include_router(stocks.router)
 app.include_router(screener.router)
@@ -88,7 +96,7 @@ inngest.fast_api.serve(app, inngest_client, inngest_functions)
 # ===== WebSocket Live Price Streaming =====
 
 MAX_CONNECTIONS = 50
-MAX_SYMBOLS_PER_CLIENT = 20
+MAX_SYMBOLS_PER_CLIENT = 200
 
 class ConnectionManager:
     def __init__(self):
@@ -260,7 +268,12 @@ async def get_market_depth(symbol: str):
 
 @app.get("/")
 def root():
-    return FileResponse("static/index.html")
+    # The app shell is not content-hashed, so never let the browser reuse a
+    # stale copy (this used to hide live-price updates behind cached HTML).
+    return FileResponse(
+        "static/index.html",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+    )
 
 
 @app.get("/api/market/status")
@@ -397,52 +410,64 @@ def health():
 async def get_volume_alerts():
     """Get stocks with unusual volume activity"""
     try:
-        # Use all available NSE symbols from the symbol universe
-        symbols = ALL_SYMBOLS
-        if not symbols:
+        # Use ALL available NSE instruments from the Upstox instrument database
+        instruments = ensure_instruments()
+        if not instruments:
             return {"alerts": [], "timestamp": datetime.now().isoformat()}
 
-        # Fetch quotes for all symbols in batches (Upstox supports up to 500)
-        quotes = await asyncio.to_thread(get_quotes, list(symbols))
+        # Filter to NSE equity symbols (those ending with .NS or without exchange suffix)
+        symbols = []
+        for k, v in instruments.items():
+            # Include symbols that look like NSE equities
+            clean = k.upper().replace(".NS", "").replace(".BO", "").strip()
+            if clean and clean not in symbols:
+                symbols.append(clean)
 
-        alerts = []
-        for symbol in symbols:
-            try:
-                quote = quotes.get(symbol) or quotes.get(symbol.replace(".NS", "").replace(".BO", "").strip().upper())
-                if not quote:
+        # Process in batches of 500 (Upstox API limit)
+        all_alerts = []
+        batch_size = 500
+        for i in range(0, len(symbols), batch_size):
+            batch = symbols[i:i+batch_size]
+            quotes = await asyncio.to_thread(get_quotes, batch)
+
+            for symbol in batch:
+                try:
+                    quote = quotes.get(symbol) or quotes.get(symbol.upper())
+                    if not quote:
+                        continue
+
+                    hist = await asyncio.to_thread(get_stock_data, [symbol], period="1mo", interval="1d")
+                    if hist is None or hist.empty or len(hist) < 2:
+                        continue
+
+                    # Average volume of the previous 20 daily candles (exclude today)
+                    col_name = symbol if symbol.endswith(".NS") else symbol
+                    avg_vol = hist[col_name]["Volume"].iloc[:-1].tail(20).mean()
+                    if not avg_vol or avg_vol <= 0:
+                        continue
+
+                    live = get_live_price(symbol) or {}
+                    today_vol = live.get("volume") or int(hist[col_name]["Volume"].iloc[-1])
+                    vol_ratio = today_vol / avg_vol
+                    if vol_ratio > 1.5:  # 1.5x average volume
+                        price = live.get("price") or float(hist[col_name]["Close"].iloc[-1])
+                        change = live.get("changePercent")
+                        if change is None:
+                            change = ((hist[col_name]["Close"].iloc[-1] - hist[col_name]["Close"].iloc[-2]) / hist[col_name]["Close"].iloc[-2]) * 100
+                        all_alerts.append({
+                            "symbol": symbol,
+                            "price": round(price, 2),
+                            "change": round(change, 2),
+                            "volume": int(today_vol),
+                            "avgVolume": int(avg_vol),
+                            "volumeRatio": round(vol_ratio, 2),
+                            "signal": "BUY" if change > 0 and vol_ratio > 2 else ("SELL" if change < 0 and vol_ratio > 2 else "WATCH")
+                        })
+                except Exception:
                     continue
 
-                hist = await asyncio.to_thread(get_stock_data, [symbol], period="1mo", interval="1d")
-                if hist is None or hist.empty or len(hist) < 2:
-                    continue
-
-                # Average volume of the previous 20 daily candles (exclude today)
-                avg_vol = hist[symbol if symbol.endswith(".NS") else symbol.replace(".NS", "")]["Volume"].iloc[:-1].tail(20).mean()
-                if not avg_vol or avg_vol <= 0:
-                    continue
-
-                live = get_live_price(symbol) or {}
-                today_vol = live.get("volume") or int(hist[symbol if symbol.endswith(".NS") else symbol.replace(".NS", "")]["Volume"].iloc[-1])
-                vol_ratio = today_vol / avg_vol
-                if vol_ratio > 1.5:  # 1.5x average volume
-                    price = live.get("price") or float(hist[symbol if symbol.endswith(".NS") else symbol.replace(".NS", "")]["Close"].iloc[-1])
-                    change = live.get("changePercent")
-                    if change is None:
-                        change = ((hist[symbol if symbol.endswith(".NS") else symbol.replace(".NS", "")]["Close"].iloc[-1] - hist[symbol if symbol.endswith(".NS") else symbol.replace(".NS", "")]["Close"].iloc[-2]) / hist[symbol if symbol.endswith(".NS") else symbol.replace(".NS", "")]["Close"].iloc[-2]) * 100
-                    alerts.append({
-                        "symbol": symbol.replace(".NS", ""),
-                        "price": round(price, 2),
-                        "change": round(change, 2),
-                        "volume": int(today_vol),
-                        "avgVolume": int(avg_vol),
-                        "volumeRatio": round(vol_ratio, 2),
-                        "signal": "BUY" if change > 0 and vol_ratio > 2 else ("SELL" if change < 0 and vol_ratio > 2 else "WATCH")
-                    })
-            except Exception:
-                continue
-
-        alerts.sort(key=lambda x: x["volumeRatio"], reverse=True)
-        return {"alerts": alerts[:10], "timestamp": datetime.now().isoformat()}
+        all_alerts.sort(key=lambda x: x["volumeRatio"], reverse=True)
+        return {"alerts": all_alerts[:10], "timestamp": datetime.now().isoformat()}
 
     except Exception as e:
         return {"alerts": [], "error": str(e)}

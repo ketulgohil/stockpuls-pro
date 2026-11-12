@@ -1892,9 +1892,74 @@
                     <div id="td-alerts" class="td-sub-content">
                         <div class="card">
                             <div class="card-header">
-                                <h3>Session Alerts</h3>
+                                <h3>Alert Rules</h3>
+                                <span class="badge" id="tdAlertRulesBadge">idle</span>
                             </div>
-                            <p class="placeholder">Opening bell / target / stop / MIS square-off rules — coming next.</p>
+                            <div class="td-controls">
+                                <div class="filter-group">
+                                    <label>Symbol</label>
+                                    <input type="text" id="tdAlertSymbol" placeholder="RELIANCE.NS">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Type</label>
+                                    <select id="tdAlertType" onchange="tdOnAlertTypeChange()">
+                                        <option value="above">Price ≥</option>
+                                        <option value="below">Price ≤</option>
+                                        <option value="target">Target hit</option>
+                                        <option value="stop">Stop hit</option>
+                                        <option value="pct_move">% move ≥</option>
+                                        <option value="opening_bell">Opening bell</option>
+                                        <option value="time">At time</option>
+                                    </select>
+                                </div>
+                                <div class="filter-group" id="tdAlertPriceWrap">
+                                    <label>Price (₹)</label>
+                                    <input type="number" id="tdAlertPrice" step="0.05">
+                                </div>
+                                <div class="filter-group" id="tdAlertPctWrap" style="display:none;">
+                                    <label>% threshold</label>
+                                    <input type="number" id="tdAlertPct" step="0.1" value="3" placeholder="e.g., 3 for 3%">
+                                </div>
+                                <div class="filter-group" id="tdAlertTimeWrap" style="display:none;">
+                                    <label>Time (IST HH:MM)</label>
+                                    <input type="text" id="tdAlertTime" placeholder="09:30">
+                                </div>
+                                <div class="filter-group td-actions-row">
+                                    <button class="btn-primary" onclick="tdAddAlertRule()">Add Rule</button>
+                                </div>
+                            </div>
+                            <p class="td-note">Types: above/below/target/stop need a price. pct_move needs %. time needs HH:MM. opening_bell fires once at 09:15 IST.</p>
+                        </div>
+                        <div class="card mt-2">
+                            <div class="card-header"><h3>Rules</h3></div>
+                            <div id="tdAlertRulesOut"><p class="placeholder">No rules yet. Add one above.</p></div>
+                        </div>
+
+                        <div class="card mt-2">
+                            <div class="card-header">
+                                <h3>Live Checks & MIS Square-Off Reminders</h3>
+                                <span class="badge" id="tdAlertLiveBadge">off</span>
+                            </div>
+                            <div class="td-controls">
+                                <div class="filter-group">
+                                    <label>Poll (seconds)</label>
+                                    <select id="tdAlertPoll" onchange="tdStartAlertPoll()">
+                                        <option value="30">30s</option>
+                                        <option value="60" selected>60s</option>
+                                        <option value="120">2 min</option>
+                                        <option value="0">Off</option>
+                                    </select>
+                                </div>
+                                <div class="filter-group td-actions-row">
+                                    <button class="btn-primary" onclick="tdRunAlertCheck()">Check Now</button>
+                                    <button class="btn-secondary" onclick="tdShowClock()">Show Market Clock</button>
+                                </div>
+                            </div>
+                            <p class="td-note">Checks rules against live LTP from the WS cache (instant, no network per tick). Server-side Inngest cron also runs during 09:15–15:15. MIS square-off audio at 15:10 & 15:15 IST.</p>
+                        </div>
+                        <div class="card mt-2">
+                            <div class="card-header"><h3>Results</h3></div>
+                            <div id="tdAlertCheckOut"><p class="placeholder">Add rules and start polling, or hit Check Now.</p></div>
                         </div>
                     </div>
                 </div>

@@ -639,9 +639,14 @@ async function loadChartChart() {
             color: d.close >= d.open ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'
         }));
 
-        candleSeriesChart.setData(candles);
-        volumeSeriesChart.setData(volumes);
-        chartChart.timeScale().fitContent();
+        // Use the new ChartController's setData method which also updates crosshair legend
+        if (window.chartController) {
+            window.chartController.setData(candles, volumes);
+        } else {
+            candleSeriesChart.setData(candles);
+            volumeSeriesChart.setData(volumes);
+            chartChart.timeScale().fitContent();
+        }
         clearChartOverlayChart();
 
         // Draw ORB levels for intraday
@@ -689,7 +694,20 @@ let chartLivePriceLineChart = null;
 function setChartTimeframe(tf, btn) {
     document.querySelectorAll('#chart .tf-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
+
+    // Save current visible range before loading new timeframe
+    if (window.chartController) {
+        window.chartController.saveVisibleRange();
+    }
+
     loadChartChart();
+
+    // Restore visible range after loading (with a small delay to let data load)
+    setTimeout(() => {
+        if (window.chartController) {
+            window.chartController.restoreVisibleRange();
+        }
+    }, 100);
 }
 
 function drawStrategyLinesChart(levels) {
@@ -5966,6 +5984,7 @@ function showTraderSubTab(tabId, btn) {
     if (btn) btn.classList.add('active');
     if (tabId === 'td-orders') tdLoadSlips();
     if (tabId === 'td-entry') tdInitEntryTimer();
+    if (tabId === 'td-alerts') tdInitAlerts();
 }
 
 // Session strip helpers (all times IST)
@@ -7093,6 +7112,158 @@ async function tdLoadAnMetrics() {
         showToast('Load failed: ' + (e.message || e), 'error');
         if (badge) { badge.textContent = 'error'; badge.className = 'badge negative'; }
     }
+}
+
+// ===== TRADER DESK: Session Alerts =====
+let tdAlertPollTimer = null;
+
+function tdOnAlertTypeChange() {
+    const t = document.getElementById('tdAlertType')?.value;
+    const priceWrap = document.getElementById('tdAlertPriceWrap');
+    const pctWrap = document.getElementById('tdAlertPctWrap');
+    const timeWrap = document.getElementById('tdAlertTimeWrap');
+    if (priceWrap) priceWrap.style.display = ['above', 'below', 'target', 'stop'].includes(t) ? '' : 'none';
+    if (pctWrap) pctWrap.style.display = t === 'pct_move' ? '' : 'none';
+    if (timeWrap) timeWrap.style.display = t === 'time' ? '' : 'none';
+}
+
+async function tdAddAlertRule() {
+    const g = id => document.getElementById(id);
+    const sym = (g('tdAlertSymbol').value || '').trim().toUpperCase();
+    if (!sym) { showToast('Enter a symbol', 'warning'); return; }
+    const finalSym = sym.includes('.') ? sym : sym + '.NS';
+    const type = g('tdAlertType').value;
+    const body = { symbol: finalSym, type: type };
+    if (['above', 'below', 'target', 'stop'].includes(type)) {
+        const p = parseFloat(g('tdAlertPrice').value);
+        if (!Number.isFinite(p)) { showToast('Enter a price', 'warning'); return; }
+        body.price = p;
+    }
+    if (type === 'pct_move') {
+        const p = parseFloat(g('tdAlertPct').value);
+        if (!Number.isFinite(p)) { showToast('Enter a %', 'warning'); return; }
+        body.pct = p;
+    }
+    if (type === 'time') {
+        const t = (g('tdAlertTime').value || '').trim();
+        if (!t) { showToast('Enter a time (HH:MM)', 'warning'); return; }
+        body.at = t;
+    }
+    try {
+        const data = await api('/api/alerts/rules', { method: 'POST', body: JSON.stringify(body) });
+        if (!data || data.error) {
+            showToast((data && (data.detail || data.error)) || 'Failed', 'error');
+            return;
+        }
+        showToast('Rule ' + data.id + ' added', 'success');
+        tdLoadAlertRules();
+    } catch (e) {
+        showToast('Add failed: ' + (e.message || e), 'error');
+    }
+}
+
+async function tdLoadAlertRules() {
+    const out = document.getElementById('tdAlertRulesOut');
+    const badge = document.getElementById('tdAlertRulesBadge');
+    if (!out) return;
+    try {
+        const data = await api('/api/alerts/rules');
+        const rules = (data && data.rules) || [];
+        if (!rules.length) {
+            out.innerHTML = '<p class="placeholder">No rules yet. Add one above.</p>';
+            if (badge) { badge.textContent = 'none'; badge.className = 'badge'; }
+            return;
+        }
+        const rows = rules.map(r =>
+            '<tr><td><b>' + (r.symbol || '').replace('.NS', '') + '</b></td>' +
+            '<td><span class="td-chip td-chip-no-data">' + r.type + '</span></td>' +
+            '<td>' + (r.price != null ? '₹' + fmtPrice(r.price) : (r.pct != null ? r.pct + '%' : (r.at || '—'))) + '</td>' +
+            '<td>' + (r.rung ? '<span class="td-chip td-chip-triggered">RUNG</span>' : '<span class="td-chip td-chip-waiting">ARMED</span>') + '</td>' +
+            '<td>' + (r.created ? r.created.slice(0, 19).replace('T', ' ') : '—') + '</td>' +
+            '<td><button class="btn-secondary td-row-btn" onclick="tdRemoveAlertRule(\'' + r.id + '\')">✕</button></td></tr>'
+        ).join('');
+        out.innerHTML = '<div class="table-container"><table><thead><tr><th>Symbol</th><th>Type</th><th>Value</th><th>State</th><th>Created</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+        if (badge) { badge.textContent = rules.length + ' rules'; badge.className = 'badge positive'; }
+    } catch (e) {
+        out.innerHTML = '<p class="placeholder">Load failed: ' + (e.message || e) + '</p>';
+        if (badge) { badge.textContent = 'error'; badge.className = 'badge negative'; }
+    }
+}
+
+async function tdRemoveAlertRule(id) {
+    try {
+        await api('/api/alerts/rules/' + id, { method: 'DELETE' });
+        showToast('Rule removed', 'success');
+        tdLoadAlertRules();
+    } catch (e) {
+        showToast('Remove failed: ' + (e.message || e), 'error');
+    }
+}
+
+function tdStartAlertPoll() {
+    if (tdAlertPollTimer) { clearInterval(tdAlertPollTimer); tdAlertPollTimer = null; }
+    const sel = document.getElementById('tdAlertPoll');
+    const secs = parseInt(sel?.value, 10) || 60;
+    const badge = document.getElementById('tdAlertLiveBadge');
+    if (secs > 0) {
+        tdAlertPollTimer = setInterval(tdRunAlertCheck, secs * 1000);
+        if (badge) { badge.textContent = 'polling ' + secs + 's'; badge.className = 'badge positive'; }
+    } else {
+        if (badge) { badge.textContent = 'off'; badge.className = 'badge'; }
+    }
+}
+
+async function tdRunAlertCheck() {
+    const out = document.getElementById('tdAlertCheckOut');
+    if (!out) return;
+    try {
+        const data = await api('/api/alerts/check', { method: 'POST' });
+        if (!data || data.error) {
+            out.innerHTML = '<p class="placeholder">Check failed: ' + (data && (data.detail || data.error)) + '</p>';
+            return;
+        }
+        const fired = data.fired || [];
+        const checked = data.checked || [];
+        const rows = fired.map(f =>
+            '<tr class="td-flash"><td><b>' + (f.symbol || '').replace('.NS', '') + '</b></td>' +
+            '<td><span class="td-chip td-chip-triggered">' + f.type + '</span></td>' +
+            '<td>' + (f.price != null ? '₹' + fmtPrice(f.price) : (f.pct != null ? f.pct + '%' : '')) + '</td>' +
+            '<td>' + (f.current_price ? '₹' + fmtPrice(f.current_price) : '—') + '</td>' +
+            '<td>' + (f.at ? f.at.slice(11, 16) : '') + '</td></tr>'
+        ).join('');
+        out.innerHTML =
+            (fired.length
+                ? '<div class="table-container"><table><thead><tr><th>Symbol</th><th>Type</th><th>Rule</th><th>Current</th><th>Fired At</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+                : '<p class="placeholder">No alerts fired this check. (' + checked.length + ' rules evaluated)</p>') +
+            '<p class="td-note">Checked ' + checked.length + ' rules at ' + new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false }) + ' IST.</p>';
+        if (fired.length) {
+            tdPlayChime();
+            showToast('🔔 ' + fired.length + ' alert(s) fired!', 'success');
+        }
+    } catch (e) {
+        out.innerHTML = '<p class="placeholder">Check failed: ' + (e.message || e) + '</p>';
+    }
+}
+
+async function tdShowClock() {
+    try {
+        const data = await api('/api/alerts/clock');
+        if (!data || data.error) { showToast('Clock failed', 'error'); return; }
+        const phase = data.session_phase || '—';
+        const isOpen = data.is_open ? 'YES' : 'NO';
+        showToast('Market: ' + phase + ' (' + data.ist_time.slice(11, 19) + ') · Open: ' + isOpen +
+            ' · Close: ' + data.market_close + ' · MIS square-off: ' + data.mis_square_off +
+            (data.next_open ? ' · Next open: ' + data.next_open : ''), 'info');
+    } catch (e) {
+        showToast('Clock failed: ' + (e.message || e), 'error');
+    }
+}
+
+// Initialize alerts on tab activation
+function tdInitAlerts() {
+    tdLoadAlertRules();
+    tdOnAlertTypeChange();
+    tdStartAlertPoll();
 }
 
 // ===== TRADER DESK: Entry Timer =====

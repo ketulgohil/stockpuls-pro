@@ -1572,6 +1572,7 @@
                                 <div class="filter-group td-actions-row">
                                     <button class="btn-primary" id="tdSizeBtn" onclick="runTdSize()">Size Trade</button>
                                     <button class="btn-secondary" onclick="tdSizeToRisk()">→ Risk Check</button>
+                                    <button class="btn-secondary" onclick="tdSizeToSlip()">→ Order Slip</button>
                                 </div>
                             </div>
                             <p class="td-note">Sizes whole shares to your budget and risk, with full statutory costs and an NSE MIS bracket-order proposal. Advisory only — nothing is placed.</p>
@@ -1645,9 +1646,63 @@
                     <div id="td-orders" class="td-sub-content">
                         <div class="card">
                             <div class="card-header">
-                                <h3>Order Desk</h3>
+                                <h3>Create Order Slip</h3>
+                                <span class="badge" id="tdSlipBadge">idle</span>
                             </div>
-                            <p class="placeholder">Broker order slips + manual fill reconciliation — coming next. No automated execution.</p>
+                            <div class="td-controls">
+                                <div class="filter-group">
+                                    <label>Symbol</label>
+                                    <input type="text" id="tdSlipSymbol" placeholder="RELIANCE.NS">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Qty</label>
+                                    <input type="number" id="tdSlipQty" value="10" min="1">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Price (₹)</label>
+                                    <input type="number" id="tdSlipPrice" step="0.05">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Stop (₹)</label>
+                                    <input type="number" id="tdSlipStop" step="0.05">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Target (₹)</label>
+                                    <input type="number" id="tdSlipTarget" step="0.05">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Broker</label>
+                                    <select id="tdSlipBroker">
+                                        <option value="zerodha">Zerodha</option>
+                                        <option value="groww">Groww</option>
+                                        <option value="upstox">Upstox</option>
+                                        <option value="angelone">Angel One</option>
+                                        <option value="plain">Plain</option>
+                                    </select>
+                                </div>
+                                <div class="filter-group">
+                                    <label>Order Type</label>
+                                    <select id="tdSlipOrderType">
+                                        <option value="LIMIT">LIMIT</option>
+                                        <option value="MARKET">MARKET</option>
+                                    </select>
+                                </div>
+                                <div class="filter-group td-actions-row">
+                                    <button class="btn-primary" id="tdSlipBtn" onclick="runTdCreateSlip()">Create Slip</button>
+                                    <button class="btn-secondary" onclick="tdSlipPrefillFromSizer()">From Sizer</button>
+                                </div>
+                            </div>
+                            <p class="td-note">Slips are formatted, copy-paste-ready order texts for your broker app. Nothing is placed automatically — record the actual fill below after you execute, to reconcile the plan.</p>
+                        </div>
+
+                        <div class="card mt-2">
+                            <div class="card-header"><h3>Slip</h3></div>
+                            <div id="tdSlipOut"><p class="placeholder">Create a slip, or pull the sizer proposal with "From Sizer".</p></div>
+                        </div>
+
+                        <div class="card mt-2">
+                            <div class="card-header"><h3>Slip History &amp; Fill Reconciliation</h3></div>
+                            <div id="tdSlipList"><p class="placeholder">No slips yet.</p></div>
                         </div>
                     </div>
 

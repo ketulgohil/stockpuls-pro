@@ -6048,6 +6048,8 @@ function showTraderSubTab(tabId, btn) {
     const pane = document.getElementById(tabId);
     if (pane) pane.classList.add('active');
     if (btn) btn.classList.add('active');
+    if (tabId === 'td-orders') tdLoadSlips();
+    if (tabId === 'td-entry') tdInitEntryTimer();
 }
 
 // Session strip helpers (all times IST)
@@ -6494,7 +6496,7 @@ function tdRenderSize(s) {
         '</tbody></table></div>' +
         '<div>' +
         (prop && Object.keys(prop).length
-            ? '<p class="td-note">Bracket-order proposal (copy-ready in Order Desk — next build):</p><table><tbody>' +
+            ? '<p class="td-note">Bracket-order proposal — send it to Risk Check or straight to the Order Desk:</p><table><tbody>' +
               Object.keys(prop).filter(k => typeof prop[k] !== 'object').slice(0, 10)
                   .map(k => _tdCostRow(k.replace(/_/g, ' '), String(prop[k]))).join('') +
               '</tbody></table>'
@@ -6640,6 +6642,163 @@ function tdRenderRiskVerdicts(res) {
         (t.daily_loss_limit ? ' / ceiling ₹' + fmtPrice(t.daily_loss_limit) : '') +
         (res.daily_loss_halted ? ' · <b class="negative">DAILY LOSS HALT ACTIVE</b>' : '') + '</p>' +
         '<p class="td-note">' + (res.advisory_note || '') + '</p>';
+}
+
+// ===== TRADER DESK: Order Desk (manual slips only — no auto-execution) =====
+async function runTdCreateSlip(prefill) {
+    const g = id => document.getElementById(id);
+    const badge = document.getElementById('tdSlipBadge');
+    const out = document.getElementById('tdSlipOut');
+    if (!g('tdSlipSymbol') || !out) return;
+
+    if (prefill) {
+        // Apply a sizer-derived order to the form before building
+        for (const [id, v] of Object.entries(prefill)) {
+            const el = g(id);
+            if (el && v != null) el.value = v;
+        }
+    }
+
+    let sym = (g('tdSlipSymbol').value || '').trim().toUpperCase();
+    if (!sym) { showToast('Enter a symbol', 'warning'); return; }
+    if (!sym.includes('.')) sym += '.NS';
+    const price = parseFloat(g('tdSlipPrice').value);
+    if (!Number.isFinite(price)) { showToast('Enter the order price', 'warning'); return; }
+
+    const body = {
+        symbol: sym,
+        quantity: parseInt(g('tdSlipQty').value, 10) || 1,
+        price: price,
+        exchange: 'NSE',
+        product: 'MIS',
+        order_type: g('tdSlipOrderType').value || 'LIMIT',
+        broker: g('tdSlipBroker').value || 'zerodha',
+        setup: 'day trade',
+    };
+    if (g('tdSlipStop').value) body.stop = parseFloat(g('tdSlipStop').value);
+    if (g('tdSlipTarget').value) body.target = parseFloat(g('tdSlipTarget').value);
+
+    if (badge) { badge.textContent = 'creating…'; badge.className = 'badge'; }
+    try {
+        const data = await api('/api/broker/slip', { method: 'POST', body: JSON.stringify(body) });
+        if (!data || data.error || data.detail) {
+            const msg = (data && (data.detail || data.error)) || 'Slip failed';
+            showToast(msg, 'error');
+            if (badge) { badge.textContent = 'error'; badge.className = 'badge negative'; }
+            return;
+        }
+        const esc = String(data.slip).replace(/</g, '&lt;');
+        out.innerHTML =
+            '<pre class="td-slip-text">' + esc + '</pre>' +
+            '<div class="td-actions-row" style="display:flex; gap:8px; margin-top:10px;">' +
+            '<button class="btn-primary" onclick="tdCopySlip(this)">📋 Copy Slip</button>' +
+            '<span class="td-note" style="align-self:center;">ticket ' + data.ticket_id + ' · ' + data.broker + ' · PROPOSED</span></div>';
+        if (badge) { badge.textContent = 'slip ready'; badge.className = 'badge positive'; }
+        showToast('Slip ' + data.ticket_id + ' created — copy it into your broker app, then record the fill', 'success');
+        tdLoadSlips();
+    } catch (e) {
+        showToast('Slip failed: ' + (e.message || e), 'error');
+        if (badge) { badge.textContent = 'error'; badge.className = 'badge negative'; }
+    }
+}
+
+function tdSlipPrefillFromSizer() {
+    const s = tdDeskState.lastSize;
+    if (!s || !s.qty) { showToast('Size a trade first', 'warning'); return; }
+    const prop = s.order_proposal || {};
+    showTraderSubTab('td-orders', document.querySelectorAll('#traderdesk .td-sub-btn')[5]);
+    // Wait for the tab to be fully active before filling the form
+    setTimeout(() => runTdCreateSlip({
+        tdSlipSymbol: s.symbol,
+        tdSlipQty: s.qty,
+        tdSlipPrice: prop.limit_price || s.entry,
+        tdSlipStop: s.stop,
+        tdSlipTarget: s.target,
+        tdSlipOrderType: (prop.order_type || 'LIMIT').toUpperCase(),
+    }), 120);
+}
+
+function tdSizeToSlip() { tdSlipPrefillFromSizer(); }
+
+async function tdCopySlip(btn) {
+    const text = document.querySelector('#tdSlipOut .td-slip-text');
+    if (!text) return;
+    try {
+        await navigator.clipboard.writeText(text.textContent);
+        btn.textContent = '✅ Copied';
+        setTimeout(() => { btn.textContent = '📋 Copy Slip'; }, 1500);
+    } catch (e) {
+        // clipboard API can be blocked; fall back to selection
+        const range = document.createRange();
+        range.selectNode(text);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+        showToast('Press ⌘C to copy the selected slip', 'info');
+    }
+}
+
+async function tdLoadSlips() {
+    const wrap = document.getElementById('tdSlipList');
+    if (!wrap) return;
+    try {
+        const data = await api('/api/broker/slips');
+        const slips = (data && data.slips) || [];
+        if (!slips.length) {
+            wrap.innerHTML = '<p class="placeholder">No slips yet.</p>';
+            return;
+        }
+        const rows = slips.slice().reverse().slice(0, 15).map(s => {
+            const id = s.ticket_id;
+            return '<tr data-ticket="' + id + '">' +
+                '<td class="muted" style="font-family:monospace;">' + id + '</td>' +
+                '<td><b>' + (s.symbol || '').replace('.NS', '') + '</b></td>' +
+                '<td>' + (s.side || 'BUY') + ' ' + (s.quantity || '') + '</td>' +
+                '<td>' + (s.price || '') + '</td>' +
+                '<td>' + (s.stop || '—') + ' / ' + (s.target || '—') + '</td>' +
+                '<td>' + (s.broker || '') + '</td>' +
+                '<td><span class="td-chip td-chip-no-data">' + (s.status || 'PROPOSED') + '</span></td>' +
+                '<td><button class="btn-secondary td-row-btn" onclick="tdFillForm(\'' + id + '\',' + (s.quantity || 0) + ',' + (parseFloat(s.price) || 0) + ')">✍ Fill</button></td></tr>' +
+                '<tr class="td-fill-row" id="tdFill-' + id + '" style="display:none;"><td colspan="8">' +
+                '<div class="td-controls" style="margin:6px 0;">' +
+                '<div class="filter-group"><label>Fill Price (₹)</label><input type="number" id="tdFillPrice-' + id + '" step="0.05" value="' + (parseFloat(s.price) || '') + '"></div>' +
+                '<div class="filter-group"><label>Fill Qty</label><input type="number" id="tdFillQty-' + id + '" value="' + (s.quantity || '') + '"></div>' +
+                '<div class="filter-group"><label>Note</label><input type="text" id="tdFillNote-' + id + '" placeholder="executed manually"></div>' +
+                '<div class="filter-group td-actions-row"><button class="btn-primary" onclick="tdSubmitFill(\'' + id + '\')">Record Fill</button></div>' +
+                '</div></td></tr>';
+        }).join('');
+        wrap.innerHTML = '<div class="table-container"><table><thead><tr><th>Ticket</th><th>Symbol</th><th>Order</th><th>Price</th><th>SL / TGT</th><th>Broker</th><th>Status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    } catch (e) {
+        wrap.innerHTML = '<p class="placeholder">Could not load slips: ' + (e.message || e) + '</p>';
+    }
+}
+
+function tdFillForm(ticketId, qty, price) {
+    const row = document.getElementById('tdFill-' + ticketId);
+    if (!row) return;
+    row.style.display = row.style.display === 'none' ? '' : 'none';
+}
+
+async function tdSubmitFill(ticketId) {
+    const g = id => document.getElementById(id);
+    const price = parseFloat((g('tdFillPrice-' + ticketId) || {}).value);
+    const qty = parseInt((g('tdFillQty-' + ticketId) || {}).value, 10);
+    const reason = (g('tdFillNote-' + ticketId) || {}).value || 'manual fill';
+    if (!Number.isFinite(price) || !qty) { showToast('Fill price and quantity are required', 'warning'); return; }
+    try {
+        const data = await api('/api/broker/fill', {
+            method: 'POST',
+            body: JSON.stringify({ ticket_id: ticketId, price: price, quantity: qty, reason: reason }),
+        });
+        if (!data || data.error || data.detail) {
+            showToast((data && (data.detail || data.error)) || 'Fill failed', 'error');
+            return;
+        }
+        showToast('Fill recorded for ' + ticketId + ' — ' + qty + ' @ ₹' + fmtPrice(price), 'success');
+        const row = document.getElementById('tdFill-' + ticketId);
+        if (row) row.style.display = 'none';
+    } catch (e) {
+        showToast('Fill failed: ' + (e.message || e), 'error');
+    }
 }
 
 // ===== TRADER DESK: Entry Timer =====

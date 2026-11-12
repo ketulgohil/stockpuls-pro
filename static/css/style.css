@@ -5053,3 +5053,16 @@ body { --chart-bg: var(--bg-card); }
 }
 
 .muted { color: var(--text-secondary); }
+
+.td-slip-text {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    margin: 0;
+}

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StockPulse Pro | Indian Market Analytics</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=4.4">
+    <link rel="stylesheet" href="/static/css/style.css?v=4.5">
     <link rel="manifest" href="/static/manifest.json">
     <meta name="theme-color" content="#0a0a0f">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -111,6 +111,10 @@
                 <a class="nav-item" data-tab="upstox-intraday" onclick="showTab('upstox-intraday')">
                     <span class="nav-icon">⚡</span>
                     <span>Upstox Intraday Desk</span>
+                </a>
+                <a class="nav-item" data-tab="traderdesk" onclick="showTab('traderdesk')">
+                    <span class="nav-icon">🧭</span>
+                    <span>Trader Desk</span>
                 </a>
                 <a class="nav-item" data-tab="heatmap" onclick="showTab('heatmap')">
                     <span class="nav-icon">▦</span>
@@ -1294,6 +1298,160 @@
                     </div>
                 </div>
 
+                <!-- ========== TRADER DESK TAB ========== -->
+                <div id="traderdesk" class="tab-content">
+                    <div class="page-header">
+                        <h1 style="display: flex; align-items: center; gap: 12px;">
+                            <span style="font-size: 32px;">🧭</span> Trader Desk
+                        </h1>
+                        <p>Day-trader workbench — scan setups, time entries, plan exits, size and risk-check every order, then time-test the plan. Advisory only: broker slips, never auto-execution.</p>
+                    </div>
+
+                    <!-- Session strip (always visible) -->
+                    <div class="td-session-strip">
+                        <div class="td-strip-item">
+                            <span class="td-strip-label">IST Clock</span>
+                            <span class="td-strip-value mono" id="tdClock">--:--:--</span>
+                        </div>
+                        <div class="td-strip-item">
+                            <span class="td-strip-label">Market</span>
+                            <span class="td-strip-value" id="tdMarketPhase">—</span>
+                        </div>
+                        <div class="td-strip-item">
+                            <span class="td-strip-label">ORB Window</span>
+                            <span class="td-strip-value" id="tdOrbWindow">—</span>
+                        </div>
+                        <div class="td-strip-item">
+                            <span class="td-strip-label">Entry Window</span>
+                            <span class="td-strip-value" id="tdEntryWindow">—</span>
+                        </div>
+                        <div class="td-strip-item">
+                            <span class="td-strip-label">Flat By</span>
+                            <span class="td-strip-value" id="tdFlatBy">—</span>
+                        </div>
+                        <div class="td-strip-item">
+                            <span class="td-strip-label">Next ORB Scan</span>
+                            <span class="td-strip-value" id="tdNextScan">—</span>
+                        </div>
+                    </div>
+
+                    <!-- Sub navigation -->
+                    <div class="td-sub-nav">
+                        <button class="td-sub-btn active" onclick="showTraderSubTab('td-scanner', this)">1 · Scanner</button>
+                        <button class="td-sub-btn" onclick="showTraderSubTab('td-entry', this)">2 · Entry Timer</button>
+                        <button class="td-sub-btn" onclick="showTraderSubTab('td-exit', this)">3 · Exit Planner</button>
+                        <button class="td-sub-btn" onclick="showTraderSubTab('td-sizer', this)">4 · Position Sizer</button>
+                        <button class="td-sub-btn" onclick="showTraderSubTab('td-risk', this)">5 · Risk Check</button>
+                        <button class="td-sub-btn" onclick="showTraderSubTab('td-orders', this)">6 · Order Desk</button>
+                        <button class="td-sub-btn" onclick="showTraderSubTab('td-timemachine', this)">7 · Time Machine</button>
+                        <button class="td-sub-btn" onclick="showTraderSubTab('td-institutional', this)">8 · Institutional</button>
+                        <button class="td-sub-btn" onclick="showTraderSubTab('td-analyst', this)">9 · Analyst</button>
+                        <button class="td-sub-btn" onclick="showTraderSubTab('td-alerts', this)">10 · Session Alerts</button>
+                    </div>
+
+                    <!-- Sub-tab 1: Scanner -->
+                    <div id="td-scanner" class="td-sub-content active">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Scanner</h3>
+                                <span class="badge" id="tdScannerBadge">idle</span>
+                            </div>
+                            <p class="placeholder">ORB and daily setup scans across the universe — coming next.</p>
+                        </div>
+                    </div>
+
+                    <!-- Sub-tab 2: Entry Timer -->
+                    <div id="td-entry" class="td-sub-content">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Entry Timer</h3>
+                                <span class="badge" id="tdEntryBadge">idle</span>
+                            </div>
+                            <p class="placeholder">Bar-by-bar trigger watchlist with alerts — coming next.</p>
+                        </div>
+                    </div>
+
+                    <!-- Sub-tab 3: Exit Planner -->
+                    <div id="td-exit" class="td-sub-content">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Exit Planner</h3>
+                            </div>
+                            <p class="placeholder">Stop/target plan with full statutory cost netting — coming next.</p>
+                        </div>
+                    </div>
+
+                    <!-- Sub-tab 4: Position Sizer -->
+                    <div id="td-sizer" class="td-sub-content">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Position Sizer</h3>
+                            </div>
+                            <p class="placeholder">Budget-based sizing (single + weighted basket) — coming next.</p>
+                        </div>
+                    </div>
+
+                    <!-- Sub-tab 5: Risk Check -->
+                    <div id="td-risk" class="td-sub-content">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Risk Check</h3>
+                            </div>
+                            <p class="placeholder">Order-list validator (loss caps, entry window, tick size, circuits) — coming next.</p>
+                        </div>
+                    </div>
+
+                    <!-- Sub-tab 6: Order Desk -->
+                    <div id="td-orders" class="td-sub-content">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Order Desk</h3>
+                            </div>
+                            <p class="placeholder">Broker order slips + manual fill reconciliation — coming next. No automated execution.</p>
+                        </div>
+                    </div>
+
+                    <!-- Sub-tab 7: Time Machine -->
+                    <div id="td-timemachine" class="td-sub-content">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Time Machine</h3>
+                            </div>
+                            <p class="placeholder">10,000-replay Monte Carlo + walk-forward validation of your plan — coming next.</p>
+                        </div>
+                    </div>
+
+                    <!-- Sub-tab 8: Institutional -->
+                    <div id="td-institutional" class="td-sub-content">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Institutional</h3>
+                            </div>
+                            <p class="placeholder">Bulk/block deals + SEBI PIT filings — coming next.</p>
+                        </div>
+                    </div>
+
+                    <!-- Sub-tab 9: Analyst -->
+                    <div id="td-analyst" class="td-sub-content">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Analyst</h3>
+                            </div>
+                            <p class="placeholder">Quarterly facts and metrics (SEBI LODR Reg 33) — coming next.</p>
+                        </div>
+                    </div>
+
+                    <!-- Sub-tab 10: Session Alerts -->
+                    <div id="td-alerts" class="td-sub-content">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Session Alerts</h3>
+                            </div>
+                            <p class="placeholder">Opening bell / target / stop / MIS square-off rules — coming next.</p>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- ========== PORTFOLIO TAB ========== -->
 
                 <div id="portfolio" class="tab-content">
@@ -2311,6 +2469,6 @@
 <script src="/static/js/chart/symbol-search.js?v=1.0"></script>
 <script src="/static/js/chart/indicator-registry.js?v=1.0"></script>
 <script src="/static/js/chart/chart-toolbar.js?v=1.0"></script>
-<script src="/static/js/app.js?v=4.5"></script>
+<script src="/static/js/app.js?v=4.6"></script>
 </body>
 </html>

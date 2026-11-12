@@ -230,6 +230,7 @@ function showTab(tabName) {
         case 'portfolio': loadPortfolio(); loadPortfolioAnalytics(); break;
         case 'watchlist': loadWatchlist(); break;
         case 'analysis': loadAlerts(); break;
+        case 'traderdesk': initTraderDesk(); break;
     }
 }
 
@@ -1122,9 +1123,16 @@ function toggleChartFullscreen() {
 function computeOrbLevels(candles) {
     if (!candles || candles.length === 0) return null;
 
-    // Group candles by IST date
-    const toIstDateKey = (isoString) => {
-        const d = new Date(isoString + 'T00:00:00+05:30');
+    // Candle times are 'YYYY-MM-DD' for daily bars and 'YYYY-MM-DD HH:mm'
+    // (IST) for intraday bars. Parse both without corrupting the timestamp.
+    const parseIst = (t) => {
+        if (typeof t === 'number') return new Date(t * 1000);
+        const s = String(t).trim();
+        return new Date(s.length > 10 ? s.replace(' ', 'T') + '+05:30' : s + 'T00:00:00+05:30');
+    };
+    const toIstDateKey = (t) => {
+        const d = parseIst(t);
+        if (isNaN(d.getTime())) return '';
         const y = d.getUTCFullYear();
         const m = String(d.getUTCMonth() + 1).padStart(2, '0');
         const day = String(d.getUTCDate()).padStart(2, '0');
@@ -1136,7 +1144,8 @@ function computeOrbLevels(candles) {
 
     // ORB window: 09:15 to 09:30 IST
     const orbBars = todayCandles.filter(c => {
-        const d = new Date(c.time + 'T00:00:00+05:30');
+        const d = parseIst(c.time);
+        if (isNaN(d.getTime())) return false;
         const totalMin = d.getUTCHours() * 60 + d.getUTCMinutes();
         return totalMin >= (3 * 60 + 45) && totalMin < (4 * 60);
     });
@@ -6027,6 +6036,119 @@ async function showUpstoxSubTab(tabId, btn) {
     document.querySelectorAll('.sub-nav-btn').forEach(b => b.classList.remove('active'));
     document.getElementById(tabId).classList.add('active');
     btn.classList.add('active');
+}
+
+// ===== TRADER DESK =====
+// Sub-tab switching scoped to #traderdesk so it never fights the Upstox desk sub-nav
+function showTraderSubTab(tabId, btn) {
+    const desk = document.getElementById('traderdesk');
+    if (!desk) return;
+    desk.querySelectorAll('.td-sub-content').forEach(t => t.classList.remove('active'));
+    desk.querySelectorAll('.td-sub-btn').forEach(b => b.classList.remove('active'));
+    const pane = document.getElementById(tabId);
+    if (pane) pane.classList.add('active');
+    if (btn) btn.classList.add('active');
+}
+
+// Session strip helpers (all times IST)
+function _tdIstParts(date = new Date()) {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Kolkata',
+        weekday: 'short', year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    }).formatToParts(date);
+    const get = t => (parts.find(p => p.type === t) || {}).value;
+    return {
+        h: (parseInt(get('hour'), 10) || 0) % 24,
+        m: parseInt(get('minute'), 10) || 0,
+        s: parseInt(get('second'), 10) || 0,
+        weekday: get('weekday') || '',
+        dateStr: `${get('year')}-${get('month')}-${get('day')}`,
+    };
+}
+
+const TD_ORB_START = 9 * 60 + 15;   // 09:15
+const TD_ORB_END = 9 * 60 + 30;     // 09:30
+const TD_ENTRY_END = 14 * 60 + 30;  // 14:30 (matches api/entry.py defaults)
+const TD_FLAT_BY = 15 * 60 + 15;    // 15:15
+const TD_SCAN_AT = 9 * 60 + 31;     // 09:31 scheduled ORB scan
+
+function _tdHm(min) {
+    return String(Math.floor(min / 60)).padStart(2, '0') + ':' + String(min % 60).padStart(2, '0');
+}
+
+function _tdUpdateStrip() {
+    const clockEl = document.getElementById('tdClock');
+    if (!clockEl) return;
+    const ist = _tdIstParts();
+    clockEl.textContent = _tdHm(ist.h * 60 + ist.m) + ':' + String(ist.s).padStart(2, '0');
+    if (!document.getElementById('traderdesk')?.classList.contains('active')) return;
+
+    const mod = ist.h * 60 + ist.m;
+    const isWeekday = !['Sat', 'Sun'].includes(ist.weekday);
+
+    const orbEl = document.getElementById('tdOrbWindow');
+    if (orbEl) {
+        if (mod < TD_ORB_START) orbEl.textContent = 'opens ' + _tdHm(TD_ORB_START);
+        else if (mod < TD_ORB_END) orbEl.textContent = 'forming · ends ' + _tdHm(TD_ORB_END);
+        else orbEl.textContent = 'formed ' + _tdHm(TD_ORB_START) + '–' + _tdHm(TD_ORB_END);
+    }
+
+    const entryEl = document.getElementById('tdEntryWindow');
+    if (entryEl) {
+        if (!isWeekday) entryEl.textContent = 'closed (weekend)';
+        else if (mod < TD_ORB_END) entryEl.textContent = 'opens ' + _tdHm(TD_ORB_END);
+        else if (mod < TD_ENTRY_END) entryEl.textContent = 'open · closes ' + _tdHm(TD_ENTRY_END);
+        else entryEl.textContent = 'closed ' + _tdHm(TD_ENTRY_END);
+    }
+
+    const flatEl = document.getElementById('tdFlatBy');
+    if (flatEl) {
+        if (!isWeekday) flatEl.textContent = '15:15';
+        else if (mod < TD_FLAT_BY) flatEl.textContent = '15:15 · in ' + (TD_FLAT_BY - mod) + 'm';
+        else flatEl.textContent = 'square-off done';
+    }
+
+    const scanEl = document.getElementById('tdNextScan');
+    if (scanEl) {
+        if (!isWeekday) scanEl.textContent = 'Mon ' + _tdHm(TD_SCAN_AT);
+        else if (mod < TD_SCAN_AT) {
+            const mins = TD_SCAN_AT - mod;
+            scanEl.textContent = (mins >= 60 ? Math.floor(mins / 60) + 'h ' : '') + (mins % 60) + 'm';
+        } else scanEl.textContent = 'next: ' + _tdHm(TD_SCAN_AT) + ' tomorrow';
+    }
+}
+
+const TD_PHASE_LABEL = {
+    'pre_open': 'Pre-open', 'opening': 'Opening…', 'open': 'Open',
+    'closing': 'Closing…', 'closed': 'Closed',
+};
+
+async function tdFetchMarketPhase() {
+    if (!document.getElementById('traderdesk')?.classList.contains('active')) return;
+    try {
+        const data = await api('/api/market/status');
+        const el = document.getElementById('tdMarketPhase');
+        if (el) {
+            const st = (data.status || 'closed').toLowerCase();
+            el.textContent = TD_PHASE_LABEL[st] || data.status;
+            el.className = 'td-strip-value td-phase-' + st;
+        }
+    } catch (e) {
+        const el = document.getElementById('tdMarketPhase');
+        if (el) { el.textContent = 'offline'; el.className = 'td-strip-value td-phase-closed'; }
+    }
+}
+
+let _tdStripTimer = null;
+let _tdPhaseTimer = null;
+
+function initTraderDesk() {
+    if (_tdStripTimer) return; // timers are global once started; ticks no-op when tab hidden
+    _tdUpdateStrip();
+    _tdStripTimer = setInterval(_tdUpdateStrip, 1000);
+    tdFetchMarketPhase();
+    _tdPhaseTimer = setInterval(tdFetchMarketPhase, 30000);
 }
 
 const UpstoxDesk = {

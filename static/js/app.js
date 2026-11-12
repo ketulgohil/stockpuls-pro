@@ -2041,8 +2041,14 @@ async function addPortfolio() {
     
     await api('/api/portfolio', {
         method: 'POST',
-        body: JSON.stringify({ symbol, quantity: qty, buyPrice: price })
+        body: JSON.stringify({ symbol, quantity: qty, buy_price: price })
     });
+    
+    // Clear input fields
+    document.getElementById('portfolioSymbol').value = '';
+    document.getElementById('portfolioQty').value = '';
+    document.getElementById('portfolioPrice').value = '';
+    document.getElementById('portfolioSuggestions').innerHTML = '';
     
     loadPortfolio();
 }

@@ -6299,7 +6299,347 @@ function tdWatchFromScan(symbol) {
 }
 
 function tdPlanFromScan(symbol, orHigh, orLow) {
-    showToast('Exit Planner arrives in the next build — OR high ₹' + fmtPrice(orHigh) + ' / low ₹' + fmtPrice(orLow) + ' noted for ' + symbol.replace('.NS', ''), 'info');
+    // Hand off to the Exit Planner with the OR box prefilled
+    const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+    set('tdExitSymbol', symbol);
+    set('tdExitEntry', (getLiveQuote(symbol) || {}).price || orHigh);
+    set('tdExitOrHigh', orHigh);
+    set('tdExitOrLow', orLow);
+    const rule = document.getElementById('tdExitStopRule');
+    if (rule) rule.value = 'orb_mid';
+    const target = document.getElementById('tdExitTargetParam');
+    if (target && !target.value) target.value = 2;
+    showTraderSubTab('td-exit', document.querySelectorAll('#traderdesk .td-sub-btn')[2]);
+    showToast(symbol.replace('.NS', '') + ' OR box loaded into Exit Planner — build the plan', 'success');
+    runTdExitPlan();
+}
+
+// ===== TRADER DESK: Exit Planner =====
+let tdDeskState = {}; // cross-pane hand-off (lastExitPlan, lastSize, …)
+
+async function runTdExitPlan() {
+    const g = id => document.getElementById(id);
+    const badge = document.getElementById('tdExitBadge');
+    const out = document.getElementById('tdExitPlanOut');
+    if (!g('tdExitSymbol') || !g('tdExitEntry') || !out) return;
+
+    const body = {
+        symbol: (g('tdExitSymbol').value || '').trim().toUpperCase() || 'RELIANCE',
+        entry: parseFloat(g('tdExitEntry').value),
+        stop_rule: g('tdExitStopRule').value || 'orb_mid',
+        target_rule: g('tdExitTargetRule').value || 'r',
+        qty: parseInt(g('tdExitQty').value, 10) || 10,
+        broker: g('tdExitBroker').value || 'discount',
+        exchange: 'NSE',
+    };
+    if (g('tdExitStopParam').value) body.stop_param = parseFloat(g('tdExitStopParam').value);
+    if (g('tdExitOrHigh').value) body.or_high = parseFloat(g('tdExitOrHigh').value);
+    if (g('tdExitOrLow').value) body.or_low = parseFloat(g('tdExitOrLow').value);
+    if (g('tdExitTargetParam').value !== '') body.target_param = parseFloat(g('tdExitTargetParam').value);
+    if (g('tdExitAtr').value) body.atr = parseFloat(g('tdExitAtr').value);
+
+    if (!Number.isFinite(body.entry)) { showToast('Enter the entry price', 'warning'); return; }
+
+    badge.textContent = 'planning…';
+    badge.className = 'badge';
+    try {
+        const data = await api('/api/exit/plan', { method: 'POST', body: JSON.stringify(body) });
+        if (!data || data.error || data.detail) {
+            const msg = (data && (data.detail || data.error)) || 'Plan failed';
+            showToast(msg, 'error');
+            badge.textContent = 'error';
+            badge.className = 'badge negative';
+            out.innerHTML = '<p class="placeholder">' + msg + '</p>';
+            return;
+        }
+        tdDeskState.lastExitPlan = data;
+        tdRenderExitPlan(data);
+        badge.textContent = 'net R:R ' + (data.net_reward_risk != null ? data.net_reward_risk.toFixed(2) : '—');
+        badge.className = 'badge' + ((data.net_reward_risk || 0) >= 1 ? ' positive' : '');
+    } catch (e) {
+        showToast('Plan failed: ' + (e.message || e), 'error');
+        badge.textContent = 'error';
+    }
+}
+
+function _tdCostRow(label, value) {
+    return '<tr><td>' + label + '</td><td style="text-align:right;">' + value + '</td></tr>';
+}
+
+function tdRenderExitPlan(p) {
+    const out = document.getElementById('tdExitPlanOut');
+    if (!out) return;
+    const c = p.statutory_costs || {};
+    const costRows = Object.keys(c).map(k => _tdCostRow(k.replace(/_/g, ' '), '₹' + fmtPrice(c[k]))).join('');
+    const warn = (p.warnings || []).length
+        ? '<p class="td-note">⚠️ ' + p.warnings.map(w => String(w).replace(/</g, '&lt;')).join(' · ') + '</p>'
+        : '';
+    const rrColor = (p.net_reward_risk || 0) >= 1 ? 'positive' : 'negative';
+
+    out.innerHTML =
+        '<div class="td-grid">' +
+        '<div><table><tbody>' +
+        _tdCostRow('<b>' + p.symbol + '</b> · ' + p.date, p.setup || '') +
+        _tdCostRow('Entry', '₹' + fmtPrice(p.entry)) +
+        _tdCostRow('Stop (' + p.stop_label + ')', '<b class="negative">₹' + fmtPrice(p.stop) + '</b>') +
+        _tdCostRow('Target (' + p.target_label + ')', '<b class="positive">₹' + fmtPrice(p.target) + '</b> · ' + p.target_r + 'R') +
+        _tdCostRow('Risk / share', '₹' + fmtPrice(p.risk_per_share)) +
+        _tdCostRow('Gross R:R', p.reward_risk) +
+        _tdCostRow('Net R:R after costs', '<b class="' + rrColor + '">' + p.net_reward_risk + '</b>') +
+        _tdCostRow('Net reward / share', '₹' + fmtPrice(p.net_reward_per_share)) +
+        '</tbody></table></div>' +
+        '<div><table><tbody>' +
+        _tdCostRow('Breakeven', '₹' + fmtPrice(p.breakeven) + ' (+' + fmtPrice(p.breakeven_diff) + ')') +
+        _tdCostRow('Total hurdle / share', '₹' + fmtPrice(p.total_hurdle)) +
+        _tdCostRow('Slippage allowance', '₹' + fmtPrice(p.slippage)) +
+        _tdCostRow('Flat by', '<b>' + p.flat_by + '</b>') +
+        '</tbody></table>' +
+        (costRows ? '<p class="td-note" style="margin-top:8px;">Statutory costs (per share):</p><table><tbody>' + costRows + '</tbody></table>' : '') +
+        '</div></div>' + warn +
+        '<p class="td-note">' + (p.note || '') + '</p>';
+}
+
+function tdOnStopRuleChange() {
+    // OR high/low only matter for orb_* rules; keep them visible for transparency anyway
+}
+
+function tdOnTargetRuleChange() {}
+
+function tdExitToSizer() {
+    const p = tdDeskState.lastExitPlan;
+    if (!p) { showToast('Build an exit plan first', 'warning'); return; }
+    const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+    set('tdSizeSymbol', p.symbol && p.symbol.includes('.') ? p.symbol : p.symbol + '.NS');
+    set('tdSizeEntry', p.entry);
+    set('tdSizeStop', p.stop);
+    set('tdSizeTarget', p.target);
+    const qtyEl = document.getElementById('tdExitQty');
+    if (qtyEl) set('tdSizeQty', parseInt(qtyEl.value, 10) || 10);
+    const broker = document.getElementById('tdExitBroker');
+    if (broker) set('tdSizeBroker', broker.value);
+    showTraderSubTab('td-sizer', document.querySelectorAll('#traderdesk .td-sub-btn')[3]);
+    runTdSize();
+}
+
+// ===== TRADER DESK: Position Sizer =====
+async function runTdSize() {
+    const g = id => document.getElementById(id);
+    const badge = document.getElementById('tdSizeBadge');
+    const out = document.getElementById('tdSizeOut');
+    if (!g('tdSizeSymbol') || !out) return;
+
+    const body = {
+        symbol: (g('tdSizeSymbol').value || '').trim().toUpperCase(),
+        entry: parseFloat(g('tdSizeEntry').value),
+        stop: parseFloat(g('tdSizeStop').value),
+        target: parseFloat(g('tdSizeTarget').value),
+        qty: parseInt(g('tdSizeQty').value, 10) || 10,
+        broker: g('tdSizeBroker').value || 'discount',
+        exchange: 'NSE',
+        budget: parseFloat(g('tdSizeBudget').value) || null,
+        latest_price: (getLiveQuote(body_symbol(g('tdSizeSymbol').value)) || {}).price || null,
+    };
+    if (!Number.isFinite(body.entry) || !Number.isFinite(body.stop)) {
+        showToast('Entry and stop are required', 'warning');
+        return;
+    }
+
+    badge.textContent = 'sizing…';
+    badge.className = 'badge';
+    try {
+        const data = await api('/api/budget/size', { method: 'POST', body: JSON.stringify(body) });
+        if (!data || data.error || data.detail) {
+            const msg = (data && (data.detail || data.error)) || 'Sizing failed';
+            showToast(msg, 'error');
+            badge.textContent = 'refused';
+            badge.className = 'badge negative';
+            out.innerHTML = '<p class="placeholder">' + msg + '</p>';
+            return;
+        }
+        tdDeskState.lastSize = data;
+        tdRenderSize(data);
+        badge.textContent = data.qty ? (data.qty + ' shares · ' + data.bound_by) : 'refused';
+        badge.className = 'badge' + (data.qty ? ' positive' : ' negative');
+    } catch (e) {
+        showToast('Sizing failed: ' + (e.message || e), 'error');
+        badge.textContent = 'error';
+    }
+}
+
+function body_symbol(s) {
+    s = (s || '').trim().toUpperCase();
+    return s.includes('.') ? s : s + '.NS';
+}
+
+function tdRenderSize(s) {
+    const out = document.getElementById('tdSizeOut');
+    if (!out) return;
+    const c = s.costs || {};
+    const costRows = Object.keys(c).map(k => _tdCostRow(k.replace(/_/g, ' '), '₹' + fmtPrice(c[k]))).join('');
+    const prop = s.order_proposal || {};
+    const refusal = s.refusal
+        ? '<p class="td-note">🚫 <b>' + String(s.refusal).replace(/</g, '&lt;') + '</b></p>'
+        : '';
+    out.innerHTML =
+        '<div class="td-grid">' +
+        '<div><table><tbody>' +
+        _tdCostRow('<b>' + s.symbol + '</b>', s.side.toUpperCase() + ' · ' + s.product + ' · ' + s.order_type) +
+        _tdCostRow('Quantity', '<b>' + s.qty + '</b> shares') +
+        _tdCostRow('Bound by', s.bound_by) +
+        _tdCostRow('Risk / share', '₹' + fmtPrice(s.risk_per_share)) +
+        _tdCostRow('Reward : risk', s.reward_risk) +
+        _tdCostRow('Max loss at stop', '<b class="negative">₹' + fmtPrice(s.total_loss_at_stop) + '</b>') +
+        _tdCostRow('Round-trip cost', '₹' + fmtPrice(s.cost)) +
+        _tdCostRow('Flat by', s.flat_by) +
+        '</tbody></table></div>' +
+        '<div>' +
+        (prop && Object.keys(prop).length
+            ? '<p class="td-note">Bracket-order proposal (copy-ready in Order Desk — next build):</p><table><tbody>' +
+              Object.keys(prop).filter(k => typeof prop[k] !== 'object').slice(0, 10)
+                  .map(k => _tdCostRow(k.replace(/_/g, ' '), String(prop[k]))).join('') +
+              '</tbody></table>'
+            : '') +
+        (costRows ? '<p class="td-note" style="margin-top:8px;">Statutory costs:</p><table><tbody>' + costRows + '</tbody></table>' : '') +
+        '</div></div>' + refusal +
+        '<p class="td-note">Slippage allowance ₹' + fmtPrice(s.slippage) + '. Advisory only.</p>';
+}
+
+function tdSizeToRisk() {
+    const s = tdDeskState.lastSize;
+    if (!s || !s.qty) { showToast('Size a trade first', 'warning'); return; }
+    const prop = s.order_proposal || {};
+    tdRiskOrders.push({
+        symbol: s.symbol,
+        side: (s.side || 'buy').toLowerCase(),
+        qty: s.qty,
+        type: (prop.order_type || s.order_type || 'limit').toLowerCase(),
+        limit_price: prop.limit_price || s.entry || null,
+        stop_loss_stop_price: s.stop || null,
+        take_profit_limit_price: s.target || null,
+    });
+    tdRenderRiskOrders();
+    showTraderSubTab('td-risk', document.querySelectorAll('#traderdesk .td-sub-btn')[4]);
+    showToast('Order added to Risk Check — run the check', 'success');
+}
+
+// ===== TRADER DESK: Risk Check =====
+let tdRiskOrders = [];
+
+function tdAddRiskOrder() {
+    const g = id => document.getElementById(id);
+    if (!g('tdRiskSymbol')) return;
+    let sym = (g('tdRiskSymbol').value || '').trim().toUpperCase();
+    if (!sym) { showToast('Enter a symbol', 'warning'); return; }
+    if (!sym.includes('.')) sym += '.NS';
+    const qty = parseInt(g('tdRiskQty').value, 10) || 10;
+    const limit = parseFloat(g('tdRiskLimit').value);
+    tdRiskOrders.push({
+        symbol: sym,
+        side: g('tdRiskSide').value || 'buy',
+        qty: qty,
+        type: 'limit',
+        limit_price: Number.isFinite(limit) ? limit : null,
+    });
+    g('tdRiskSymbol').value = '';
+    tdRenderRiskOrders();
+}
+
+function tdRemoveRiskOrder(i) {
+    tdRiskOrders.splice(i, 1);
+    tdRenderRiskOrders();
+}
+
+function tdClearRiskOrders() {
+    tdRiskOrders = [];
+    tdRenderRiskOrders();
+    const out = document.getElementById('tdRiskOut');
+    if (out) out.innerHTML = '<p class="placeholder">Add orders and run the check.</p>';
+    const badge = document.getElementById('tdRiskBadge');
+    if (badge) { badge.textContent = 'idle'; badge.className = 'badge'; }
+}
+
+function tdRenderRiskOrders() {
+    const out = document.getElementById('tdRiskOut');
+    if (!out) return;
+    if (!tdRiskOrders.length) {
+        out.innerHTML = '<p class="placeholder">No orders queued. Add one above or send from the Sizer.</p>';
+        return;
+    }
+    const rows = tdRiskOrders.map((o, i) =>
+        '<tr><td><b>' + o.symbol.replace('.NS', '') + '</b></td>' +
+        '<td class="' + (o.side === 'buy' ? 'positive' : 'negative') + '">' + o.side.toUpperCase() + '</td>' +
+        '<td>' + o.qty + '</td><td>' + o.type + '</td>' +
+        '<td>' + (o.limit_price ? '₹' + fmtPrice(o.limit_price) : 'LTP') + '</td>' +
+        '<td><button class="btn-secondary td-row-btn" onclick="tdRemoveRiskOrder(' + i + ')">✕</button></td></tr>'
+    ).join('');
+    out.innerHTML = '<div class="table-container"><table><thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Type</th><th>Price</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    refreshLiveSubscriptions();
+}
+
+async function tdRunRiskCheck() {
+    const badge = document.getElementById('tdRiskBadge');
+    const out = document.getElementById('tdRiskOut');
+    if (!badge || !out) return;
+    if (!tdRiskOrders.length) { showToast('Add at least one order', 'warning'); return; }
+
+    const g = id => document.getElementById(id);
+    const config = {
+        budget: parseFloat(g('tdRiskBudget').value) || undefined,
+        max_loss_per_trade_inr: parseFloat(g('tdRiskMaxLoss').value) || undefined,
+        max_daily_loss_inr: parseFloat(g('tdRiskDailyLoss').value) || undefined,
+    };
+    Object.keys(config).forEach(k => config[k] === undefined && delete config[k]);
+
+    // Attach live prices so entries without a limit price still get validated
+    const prices = {};
+    tdRiskOrders.forEach(o => {
+        const q = getLiveQuote(o.symbol);
+        if (q && q.price) prices[o.symbol] = q.price;
+    });
+
+    badge.textContent = 'checking…';
+    badge.className = 'badge';
+    try {
+        const data = await api('/api/risk/check', {
+            method: 'POST',
+            body: JSON.stringify({ orders: tdRiskOrders, config: config, prices: prices }),
+        });
+        if (!data || data.error || data.detail) {
+            const msg = (data && (data.detail || data.error)) || 'Check failed';
+            showToast(msg, 'error');
+            badge.textContent = 'error';
+            badge.className = 'badge negative';
+            out.insertAdjacentHTML('beforeend', '<p class="placeholder">' + msg + '</p>');
+            return;
+        }
+        tdRenderRiskVerdicts(data);
+        badge.textContent = data.pass + ' pass / ' + data.block + ' block';
+        badge.className = 'badge' + (data.block ? ' negative' : ' positive');
+    } catch (e) {
+        showToast('Check failed: ' + (e.message || e), 'error');
+        badge.textContent = 'error';
+    }
+}
+
+function tdRenderRiskVerdicts(res) {
+    const out = document.getElementById('tdRiskOut');
+    if (!out) return;
+    const rows = (res.results || []).map(r =>
+        '<tr><td><b>' + r.symbol.replace('.NS', '') + '</b></td>' +
+        '<td class="' + (r.side === 'BUY' ? 'positive' : 'negative') + '">' + r.side + ' ' + r.qty + '</td>' +
+        '<td><span class="' + (r.verdict === 'PASS' ? 'td-chip td-chip-triggered' : 'td-chip td-chip-expired') + '">' + r.verdict + '</span></td>' +
+        '<td class="muted">' + (r.reasons && r.reasons.length ? r.reasons.join(' · ') : (r.warnings || []).join(' · ') || '—') + '</td>' +
+        '<td>' + (r.max_loss != null ? '₹' + fmtPrice(r.max_loss) : '—') + '</td></tr>'
+    ).join('');
+    const t = res.today || {};
+    out.innerHTML =
+        '<div class="table-container"><table><thead><tr><th>Symbol</th><th>Order</th><th>Verdict</th><th>Reasons</th><th>Max Loss</th></tr></thead><tbody>' +
+        rows + '</tbody></table></div>' +
+        '<p class="td-note">Portfolio state: ' + res.pass + ' PASS · ' + res.block + ' BLOCK · cash after ₹' + fmtPrice(res.cash_after) +
+        ' · today: ' + (t.orders_placed || 0) + ' orders, loss-at-risk ₹' + fmtPrice(t.loss_at_risk) +
+        (t.daily_loss_limit ? ' / ceiling ₹' + fmtPrice(t.daily_loss_limit) : '') +
+        (res.daily_loss_halted ? ' · <b class="negative">DAILY LOSS HALT ACTIVE</b>' : '') + '</p>' +
+        '<p class="td-note">' + (res.advisory_note || '') + '</p>';
 }
 
 // ===== TRADER DESK: Entry Timer =====

@@ -1456,9 +1456,77 @@
                     <div id="td-exit" class="td-sub-content">
                         <div class="card">
                             <div class="card-header">
-                                <h3>Exit Planner</h3>
+                                <h3>Exit Plan Builder</h3>
+                                <span class="badge" id="tdExitBadge">idle</span>
                             </div>
-                            <p class="placeholder">Stop/target plan with full statutory cost netting — coming next.</p>
+                            <div class="td-controls">
+                                <div class="filter-group">
+                                    <label>Symbol</label>
+                                    <input type="text" id="tdExitSymbol" placeholder="RELIANCE.NS">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Entry (₹)</label>
+                                    <input type="number" id="tdExitEntry" step="0.05">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Qty</label>
+                                    <input type="number" id="tdExitQty" value="10" min="1">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Stop Rule</label>
+                                    <select id="tdExitStopRule" onchange="tdOnStopRuleChange()">
+                                        <option value="orb_mid">ORB midpoint</option>
+                                        <option value="orb_low">ORB low</option>
+                                        <option value="price">Price ₹</option>
+                                        <option value="pct">% below entry</option>
+                                        <option value="atr">ATR × n</option>
+                                    </select>
+                                </div>
+                                <div class="filter-group">
+                                    <label>Stop Param</label>
+                                    <input type="number" id="tdExitStopParam" step="0.05" placeholder="price / % / n">
+                                </div>
+                                <div class="filter-group">
+                                    <label>OR High (₹)</label>
+                                    <input type="number" id="tdExitOrHigh" step="0.05">
+                                </div>
+                                <div class="filter-group">
+                                    <label>OR Low (₹)</label>
+                                    <input type="number" id="tdExitOrLow" step="0.05">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Target Rule</label>
+                                    <select id="tdExitTargetRule" onchange="tdOnTargetRuleChange()">
+                                        <option value="r">R multiple</option>
+                                        <option value="price">Price ₹</option>
+                                    </select>
+                                </div>
+                                <div class="filter-group">
+                                    <label>Target Param</label>
+                                    <input type="number" id="tdExitTargetParam" value="2" step="0.25">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Broker</label>
+                                    <select id="tdExitBroker">
+                                        <option value="discount">Discount</option>
+                                        <option value="full">Full-service</option>
+                                    </select>
+                                </div>
+                                <div class="filter-group">
+                                    <label>ATR (₹, optional)</label>
+                                    <input type="number" id="tdExitAtr" step="0.05">
+                                </div>
+                                <div class="filter-group td-actions-row">
+                                    <button class="btn-primary" id="tdExitBtn" onclick="runTdExitPlan()">Build Plan</button>
+                                    <button class="btn-secondary" onclick="tdExitToSizer()">→ Sizer</button>
+                                </div>
+                            </div>
+                            <p class="td-note">ORB stop rules use the opening range — Entry Timer or Scanner hits fill OR high/low automatically. "Net" figures deduct STT, GST, SEBI, stamp duty and slippage.</p>
+                        </div>
+
+                        <div class="card mt-2">
+                            <div class="card-header"><h3>Plan</h3></div>
+                            <div id="tdExitPlanOut"><p class="placeholder">Build a plan to see stop, target, net R:R, breakeven and the full statutory cost table.</p></div>
                         </div>
                     </div>
 
@@ -1467,8 +1535,51 @@
                         <div class="card">
                             <div class="card-header">
                                 <h3>Position Sizer</h3>
+                                <span class="badge" id="tdSizeBadge">idle</span>
                             </div>
-                            <p class="placeholder">Budget-based sizing (single + weighted basket) — coming next.</p>
+                            <div class="td-controls">
+                                <div class="filter-group">
+                                    <label>Symbol</label>
+                                    <input type="text" id="tdSizeSymbol" placeholder="RELIANCE.NS">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Entry (₹)</label>
+                                    <input type="number" id="tdSizeEntry" step="0.05">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Stop (₹)</label>
+                                    <input type="number" id="tdSizeStop" step="0.05">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Target (₹)</label>
+                                    <input type="number" id="tdSizeTarget" step="0.05">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Budget (₹)</label>
+                                    <input type="number" id="tdSizeBudget" value="100000" step="5000">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Qty Hint</label>
+                                    <input type="number" id="tdSizeQty" value="10" min="1">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Broker</label>
+                                    <select id="tdSizeBroker">
+                                        <option value="discount">Discount</option>
+                                        <option value="full">Full-service</option>
+                                    </select>
+                                </div>
+                                <div class="filter-group td-actions-row">
+                                    <button class="btn-primary" id="tdSizeBtn" onclick="runTdSize()">Size Trade</button>
+                                    <button class="btn-secondary" onclick="tdSizeToRisk()">→ Risk Check</button>
+                                </div>
+                            </div>
+                            <p class="td-note">Sizes whole shares to your budget and risk, with full statutory costs and an NSE MIS bracket-order proposal. Advisory only — nothing is placed.</p>
+                        </div>
+
+                        <div class="card mt-2">
+                            <div class="card-header"><h3>Sizing Result</h3></div>
+                            <div id="tdSizeOut"><p class="placeholder">Size a trade to see quantity, bound-by, cost and the order proposal.</p></div>
                         </div>
                     </div>
 
@@ -1476,9 +1587,57 @@
                     <div id="td-risk" class="td-sub-content">
                         <div class="card">
                             <div class="card-header">
-                                <h3>Risk Check</h3>
+                                <h3>Order List</h3>
+                                <span class="badge" id="tdRiskBadge">idle</span>
                             </div>
-                            <p class="placeholder">Order-list validator (loss caps, entry window, tick size, circuits) — coming next.</p>
+                            <div class="td-controls">
+                                <div class="filter-group">
+                                    <label>Symbol</label>
+                                    <input type="text" id="tdRiskSymbol" placeholder="RELIANCE.NS">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Side</label>
+                                    <select id="tdRiskSide">
+                                        <option value="buy">Buy</option>
+                                        <option value="sell">Sell</option>
+                                    </select>
+                                </div>
+                                <div class="filter-group">
+                                    <label>Qty</label>
+                                    <input type="number" id="tdRiskQty" value="10" min="1">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Limit (₹)</label>
+                                    <input type="number" id="tdRiskLimit" step="0.05" placeholder="blank = LTP">
+                                </div>
+                                <div class="filter-group td-actions-row">
+                                    <button class="btn-secondary" onclick="tdAddRiskOrder()">+ Add</button>
+                                </div>
+                            </div>
+                            <div class="td-controls">
+                                <div class="filter-group">
+                                    <label>Max Loss / Trade (₹)</label>
+                                    <input type="number" id="tdRiskMaxLoss" value="5000" step="500">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Daily Loss Ceiling (₹)</label>
+                                    <input type="number" id="tdRiskDailyLoss" value="15000" step="1000">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Budget (₹)</label>
+                                    <input type="number" id="tdRiskBudget" value="500000" step="10000">
+                                </div>
+                                <div class="filter-group td-actions-row">
+                                    <button class="btn-primary" id="tdRiskBtn" onclick="tdRunRiskCheck()">Check Orders</button>
+                                    <button class="btn-secondary" onclick="tdClearRiskOrders()">Clear</button>
+                                </div>
+                            </div>
+                            <p class="td-note">PASS is an advisory safety approval for the exact proposal — not an executed trade. Checks: loss caps, entry window, tick size, order value bounds.</p>
+                        </div>
+
+                        <div class="card mt-2">
+                            <div class="card-header"><h3>Verdicts</h3></div>
+                            <div id="tdRiskOut"><p class="placeholder">Add orders and run the check.</p></div>
                         </div>
                     </div>
 

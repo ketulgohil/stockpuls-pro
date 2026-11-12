@@ -29,6 +29,52 @@ router = APIRouter(prefix="/api/budget", tags=["budget-manager"])
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 ORDERS_FILE = os.path.join(DATA_DIR, "budget_orders.json")
 
+MAX_ORDER_HISTORY = 20
+
+
+def _load_order_history() -> list:
+    """Saved order proposals (oldest first). Migrates the old single-doc file."""
+    if not os.path.exists(ORDERS_FILE):
+        return []
+    try:
+        with open(ORDERS_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (ValueError, OSError):
+        return []
+    if isinstance(data, list):
+        return [d for d in data if isinstance(d, dict)]
+    if isinstance(data, dict):
+        return [data]
+    return []
+
+
+def _save_order_doc(order: dict) -> None:
+    """Append a bracket-order proposal to the history, capped."""
+    doc = {
+        "schema_version": "1.0.0",
+        "created_by": "trader-budget",
+        "created_at": datetime.datetime.now(IST).isoformat(),
+        "status": "PROPOSED",
+        "currency": "INR",
+        "orders": [order],
+    }
+    history = _load_order_history()
+    history.append(doc)
+    os.makedirs(DATA_DIR, exist_ok=True)
+    tmp = ORDERS_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(history[-MAX_ORDER_HISTORY:], fh, indent=2)
+        fh.write("\n")
+    os.replace(tmp, ORDERS_FILE)
+
+
+@router.get("/orders")
+def budget_orders_list(auth: bool = Depends(verify_api_key)):
+    """Most recent bracket-order proposals (newest first)."""
+    history = _load_order_history()
+    history.reverse()
+    return {"orders": history, "count": len(history)}
+
 CENT = Decimal("0.01")
 DEFAULTS = {
     "budget": None,
@@ -466,21 +512,7 @@ def size_trade_endpoint(req: SizeRequest, auth: bool = Depends(verify_api_key)):
         order = bracket_order(s)
 
         if order:
-            os.makedirs(DATA_DIR, exist_ok=True)
-            tmp = ORDERS_FILE + ".tmp"
-            doc = {
-                "schema_version": "1.0.0",
-                "created_by": "trader-budget",
-                "created_at": datetime.datetime.now(IST).isoformat(),
-                "status": "PROPOSED",
-                "paper": bool(cfg.get("paper", True)),
-                "currency": "INR",
-                "orders": [order],
-            }
-            with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump(doc, fh, indent=2)
-                fh.write("\n")
-            os.replace(tmp, ORDERS_FILE)
+            _save_order_doc(order)
 
         return {
             "symbol": s["symbol"],

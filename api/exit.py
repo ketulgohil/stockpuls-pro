@@ -307,6 +307,12 @@ def _save_plans(plans: dict) -> None:
     os.replace(tmp, PLANS_FILE)
 
 
+@router.get("/plans")
+def exit_plans_list(auth: bool = Depends(verify_api_key)):
+    """All saved exit plans, keyed by symbol."""
+    return {"plans": _load_plans()}
+
+
 @router.post("/plan", response_model=ExitPlanResponse)
 def exit_plan(req: ExitPlanRequest, auth: bool = Depends(verify_api_key)):
     """Compute a stop/target plan with statutory cost netting."""

@@ -36,6 +36,37 @@ router = APIRouter(prefix="/api/risk", tags=["risk-manager"])
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 RISK_FILE = os.path.join(DATA_DIR, "risk.json")
 
+MAX_RISK_HISTORY = 20
+
+
+def _load_risk_history() -> list:
+    """Saved risk-check results (oldest first). Migrates the old single-doc file."""
+    if not os.path.exists(RISK_FILE):
+        return []
+    try:
+        with open(RISK_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (ValueError, OSError):
+        return []
+    if isinstance(data, list):
+        return [d for d in data if isinstance(d, dict)]
+    if isinstance(data, dict):
+        return [data]
+    return []
+
+
+def _save_risk_doc(doc: dict) -> None:
+    """Append a risk-check result to the history, capped."""
+    history = _load_risk_history()
+    history.append(doc)
+    os.makedirs(DATA_DIR, exist_ok=True)
+    tmp = RISK_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(history[-MAX_RISK_HISTORY:], fh, indent=2)
+        fh.write("\n")
+    os.replace(tmp, RISK_FILE)
+
+
 DEFAULTS = {
     "budget": 500000.0,
     "cash_buffer_pct": 10.0,
@@ -656,12 +687,16 @@ def risk_check(req: RiskCheckRequest, auth: bool = Depends(verify_api_key)):
                 "daily_loss_limit": float(max_daily_loss) if max_daily_loss else None,
             },
         }
-        tmp = RISK_FILE + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(res, fh, indent=2)
-            fh.write("\n")
-        os.replace(tmp, RISK_FILE)
+        _save_risk_doc(res)
 
         return res
     except RiskError as re:
         raise HTTPException(status_code=400, detail=str(re))
+
+
+@router.get("/checks")
+def risk_checks_history(auth: bool = Depends(verify_api_key)):
+    """Most recent risk-check results (newest first)."""
+    history = _load_risk_history()
+    history.reverse()
+    return {"checks": history, "count": len(history)}

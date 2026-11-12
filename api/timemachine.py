@@ -11,12 +11,14 @@ Endpoints:
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import json
 import math
 import os
 import random
 import statistics
+import uuid
 from decimal import Decimal
 from typing import Optional
 
@@ -81,11 +83,33 @@ def _json_default(o):
     raise TypeError(f"Object of type {o.__class__.__name__} is not JSON serializable")
 
 
+MAX_TM_HISTORY = 20
+
+
+def _load_tm_history() -> list:
+    """Saved Time Machine runs (oldest first). Migrates the old single-doc file."""
+    if not os.path.exists(TM_FILE):
+        return []
+    try:
+        with open(TM_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (ValueError, OSError):
+        return []
+    if isinstance(data, list):
+        return [d for d in data if isinstance(d, dict)]
+    if isinstance(data, dict):
+        return [data]
+    return []
+
+
 def _save_tm(doc: dict) -> None:
+    """Append a Time Machine run to the history, capped at 20."""
+    runs = _load_tm_history()
+    runs.append(doc)
     os.makedirs(DATA_DIR, exist_ok=True)
     tmp = TM_FILE + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(doc, fh, indent=2, default=_json_default)
+        json.dump(runs[-MAX_TM_HISTORY:], fh, indent=2, default=_json_default)
         fh.write("\n")
     os.replace(tmp, TM_FILE)
 
@@ -554,3 +578,76 @@ def timemachine_run(req: TimeMachineRequest, auth: bool = Depends(verify_api_key
         return doc
     except TMError as te:
         raise HTTPException(status_code=400, detail=str(te))
+
+
+# ---------------------------------------------------------------------------
+# Async job wrapper: submit -> poll, so heavy replays never block the event loop
+# ---------------------------------------------------------------------------
+
+MAX_TM_JOB_REPLAYS = 20000
+MAX_TM_JOBS = 20
+
+_TM_JOBS: dict = {}  # job_id -> {status, created_at, symbol, date, result, error, task}
+
+
+@router.post("/job")
+async def timemachine_job(req: TimeMachineRequest, auth: bool = Depends(verify_api_key)):
+    """Submit a Time Machine run as a background job. Poll GET /result/{job_id}."""
+    if not 1 <= req.replays <= MAX_TM_JOB_REPLAYS:
+        raise HTTPException(
+            status_code=400,
+            detail="replays must be between 1 and %s for async jobs (use /run for bigger batches)"
+            % f"{MAX_TM_JOB_REPLAYS:,}",
+        )
+
+    job_id = uuid.uuid4().hex[:12]
+    _TM_JOBS[job_id] = {
+        "status": "running",
+        "created_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "symbol": req.symbol.upper(),
+        "date": req.date,
+        "result": None,
+        "error": None,
+    }
+    # Keep only the most recent MAX_TM_JOBS jobs
+    while len(_TM_JOBS) > MAX_TM_JOBS:
+        _TM_JOBS.pop(next(iter(_TM_JOBS)), None)
+
+    async def _worker():
+        try:
+            doc = await asyncio.to_thread(timemachine_run, req, True)
+            _TM_JOBS[job_id]["result"] = doc
+            _TM_JOBS[job_id]["status"] = "done"
+        except HTTPException as he:
+            _TM_JOBS[job_id]["status"] = "error"
+            _TM_JOBS[job_id]["error"] = he.detail
+        except Exception as ex:  # never leave a job hanging in "running"
+            _TM_JOBS[job_id]["status"] = "error"
+            _TM_JOBS[job_id]["error"] = "internal error: %s" % ex
+
+    _TM_JOBS[job_id]["task"] = asyncio.create_task(_worker())
+
+    return {"job_id": job_id, "status": "running", "poll": "/api/timemachine/result/%s" % job_id}
+
+
+@router.get("/result/{job_id}")
+def timemachine_result(job_id: str, auth: bool = Depends(verify_api_key)):
+    """Poll a Time Machine job. Result is included once status is done."""
+    job = _TM_JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="unknown job %r (jobs are lost on restart)" % job_id)
+    out = {k: job[k] for k in ("status", "created_at", "symbol", "date", "error")}
+    if job["status"] == "done":
+        out["result"] = job["result"]
+    return out
+
+
+@router.get("/history")
+def timemachine_history(full: bool = False, auth: bool = Depends(verify_api_key)):
+    """Most recent Time Machine runs (newest first). Heavy payloads only with ?full=true."""
+    runs = _load_tm_history()
+    runs.reverse()
+    if full:
+        return {"runs": runs, "count": len(runs)}
+    summary = [{k: v for k, v in doc.items() if k not in ("mc", "history", "walk_forward")} for doc in runs]
+    return {"runs": summary, "count": len(summary)}

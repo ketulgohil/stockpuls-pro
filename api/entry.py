@@ -73,11 +73,30 @@ class EntryCheckResponse(BaseModel):
     forming: Optional[dict] = None
 
 
+def _load_entry_history() -> list:
+    """Triggered-entry history (oldest first). Migrates the old single-doc file."""
+    if not os.path.exists(ENTRY_FILE):
+        return []
+    try:
+        with open(ENTRY_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (ValueError, OSError):
+        return []
+    if isinstance(data, list):
+        return [d for d in data if isinstance(d, dict)]
+    if isinstance(data, dict):
+        return [data]
+    return []
+
+
 def _save_entry(doc: dict) -> None:
+    """Append a triggered entry to the history (newest last), capped at 50."""
+    history = _load_entry_history()
+    history.append(doc)
     os.makedirs(DATA_DIR, exist_ok=True)
     tmp = ENTRY_FILE + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(doc, fh, indent=2)
+        json.dump(history[-50:], fh, indent=2)
         fh.write("\n")
     os.replace(tmp, ENTRY_FILE)
 
@@ -336,3 +355,11 @@ def entry_check(req: EntryCheckRequest, auth: bool = Depends(verify_api_key)):
         return public_res
     except EntryError as ee:
         raise HTTPException(status_code=400, detail=str(ee))
+
+
+@router.get("/history")
+def entry_history(auth: bool = Depends(verify_api_key)):
+    """Most recent triggered entries (newest first)."""
+    history = _load_entry_history()
+    history.reverse()
+    return {"entries": history, "count": len(history)}

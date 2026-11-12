@@ -1707,12 +1707,86 @@
                     </div>
 
                     <!-- Sub-tab 7: Time Machine -->
+                    <!-- Sub-tab 7: Time Machine -->
                     <div id="td-timemachine" class="td-sub-content">
                         <div class="card">
                             <div class="card-header">
                                 <h3>Time Machine</h3>
+                                <span class="badge" id="tdTmBadge">idle</span>
                             </div>
-                            <p class="placeholder">10,000-replay Monte Carlo + walk-forward validation of your plan — coming next.</p>
+                            <div class="td-controls">
+                                <div class="filter-group">
+                                    <label>Symbol</label>
+                                    <input type="text" id="tdTmSymbol" placeholder="RELIANCE.NS">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Session Date</label>
+                                    <input type="date" id="tdTmDate">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Entry (₹)</label>
+                                    <input type="number" id="tdTmEntry" step="0.05">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Stop (₹)</label>
+                                    <input type="number" id="tdTmStop" step="0.05">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Target (₹)</label>
+                                    <input type="number" id="tdTmTarget" step="0.05">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Entry Time (IST)</label>
+                                    <input type="text" id="tdTmEntryTime" value="09:35" placeholder="09:35 or 09:35 AM">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Side</label>
+                                    <select id="tdTmSide">
+                                        <option value="buy">Buy</option>
+                                        <option value="sell">Sell</option>
+                                    </select>
+                                </div>
+                                <div class="filter-group">
+                                    <label>Shares</label>
+                                    <input type="number" id="tdTmShares" value="100" min="1">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Replays (≤20k)</label>
+                                    <input type="number" id="tdTmReplays" value="5000" min="100" max="20000" step="100">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Until (IST)</label>
+                                    <input type="text" id="tdTmUntil" placeholder="15:30 (default)" value="15:30">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Walk-forward split</label>
+                                    <input type="number" id="tdTmSplit" value="0.70" min="0.5" max="0.9" step="0.05">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Embargo sessions</label>
+                                    <input type="number" id="tdTmEmbargo" value="1" min="0" max="5">
+                                </div>
+                                <div class="filter-group td-actions-row">
+                                    <button class="btn-primary" id="tdTmBtn" onclick="runTdTimeMachine()">Run Simulation</button>
+                                    <button class="btn-secondary" onclick="tdTmPrefillFromSizer()">From Sizer</button>
+                                </div>
+                            </div>
+                            <p class="td-note">Replays the rest of the 5m-bar session 5,000× (configurable). Monte Carlo uses bar-to-bar ratios from the last 60 days. Walk-forward validates chronologically with split/embargo. Advisory only — not a prediction.</p>
+                        </div>
+
+                        <div class="card mt-2">
+                            <div class="card-header"><h3>Monte Carlo Result</h3></div>
+                            <div id="tdTmMcOut"><p class="placeholder">Run a simulation to see win rate, expectancy, P50/P95 equity bands, and the honest-verdict banner.</p></div>
+                        </div>
+
+                        <div class="card mt-2">
+                            <div class="card-header"><h3>Walk-Forward Validation</h3></div>
+                            <div id="tdTmWfOut"><p class="placeholder">Chronological session-by-session replay of your plan.</p></div>
+                        </div>
+
+                        <div class="card mt-2">
+                            <div class="card-header"><h3>History</h3></div>
+                            <div id="tdTmHist"><p class="placeholder">No runs yet.</p></div>
                         </div>
                     </div>
 

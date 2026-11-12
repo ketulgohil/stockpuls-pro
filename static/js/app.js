@@ -6801,6 +6801,228 @@ async function tdSubmitFill(ticketId) {
     }
 }
 
+// ===== TRADER DESK: Time Machine =====
+let tdTmJobId = null;
+let tdTmPollTimer = null;
+
+function tdTmPrefillFromSizer() {
+    const s = tdDeskState.lastSize;
+    if (!s || !s.qty) { showToast('Size a trade first', 'warning'); return; }
+    const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+    set('tdTmSymbol', s.symbol);
+    set('tdTmEntry', s.entry);
+    set('tdTmStop', s.stop);
+    set('tdTmTarget', s.target);
+    set('tdTmShares', s.qty);
+    set('tdTmSide', s.side || 'buy');
+    showTraderSubTab('td-timemachine', document.querySelectorAll('#traderdesk .td-sub-btn')[6]);
+    runTdTimeMachine();
+}
+
+async function runTdTimeMachine() {
+    const g = id => document.getElementById(id);
+    const badge = document.getElementById('tdTmBadge');
+    const mcOut = document.getElementById('tdTmMcOut');
+    const wfOut = document.getElementById('tdTmWfOut');
+    if (!g('tdTmSymbol') || !mcOut || !wfOut) return;
+
+    const sym = (g('tdTmSymbol').value || '').trim().toUpperCase() || 'RELIANCE.NS';
+    if (!sym.includes('.')) sym += '.NS';
+    const body = {
+        symbol: sym,
+        date: g('tdTmDate').value || new Date().toISOString().slice(0, 10),
+        entry: parseFloat(g('tdTmEntry').value),
+        stop: parseFloat(g('tdTmStop').value),
+        target: parseFloat(g('tdTmTarget').value),
+        entry_time: g('tdTmEntryTime').value || '09:35',
+        side: g('tdTmSide').value || 'buy',
+        shares: parseInt(g('tdTmShares').value, 10) || 100,
+        replays: parseInt(g('tdTmReplays').value, 10) || 5000,
+        until: g('tdTmUntil').value || '15:30',
+        split_ratio: parseFloat(g('tdTmSplit').value) || 0.70,
+        embargo_sessions: parseInt(g('tdTmEmbargo').value, 10) || 1,
+    };
+    if (!Number.isFinite(body.entry) || !Number.isFinite(body.stop) || !Number.isFinite(body.target)) {
+        showToast('Entry, stop, and target are required', 'warning');
+        return;
+    }
+
+    if (badge) { badge.textContent = 'submitting…'; badge.className = 'badge'; }
+    mcOut.innerHTML = '<p class="placeholder">Submitting simulation job…</p>';
+    wfOut.innerHTML = '<p class="placeholder">Waiting for job to complete…</p>';
+
+    try {
+        const job = await api('/api/timemachine/job', { method: 'POST', body: JSON.stringify(body) });
+        if (!job || job.error || job.detail) {
+            const msg = (job && (job.detail || job.error)) || 'Job failed';
+            showToast(msg, 'error');
+            if (badge) { badge.textContent = 'error'; badge.className = 'badge negative'; }
+            mcOut.innerHTML = '<p class="placeholder">' + msg + '</p>';
+            return;
+        }
+        tdTmJobId = job.job_id;
+        if (badge) { badge.textContent = 'running…'; badge.className = 'badge'; }
+        tdPollTmJob();
+    } catch (e) {
+        showToast('Submit failed: ' + (e.message || e), 'error');
+        if (badge) { badge.textContent = 'error'; badge.className = 'badge negative'; }
+    }
+}
+
+function tdPollTmJob() {
+    if (!tdTmJobId) return;
+    const badge = document.getElementById('tdTmBadge');
+    const mcOut = document.getElementById('tdTmMcOut');
+    const wfOut = document.getElementById('tdTmWfOut');
+
+    const check = async () => {
+        try {
+            const data = await api('/api/timemachine/result/' + tdTmJobId);
+            if (!data || data.error) {
+                if (badge) { badge.textContent = 'error'; badge.className = 'badge negative'; }
+                mcOut.innerHTML = '<p class="placeholder">Job error: ' + (data && (data.detail || data.error)) + '</p>';
+                if (tdTmPollTimer) { clearInterval(tdTmPollTimer); tdTmPollTimer = null; }
+                return;
+            }
+            if (data.status === 'running') {
+                if (badge) badge.textContent = 'running…';
+                return;
+            }
+            if (data.status === 'error') {
+                if (badge) { badge.textContent = 'error'; badge.className = 'badge negative'; }
+                mcOut.innerHTML = '<p class="placeholder">Simulation failed: ' + (data.error || 'unknown') + '</p>';
+                if (tdTmPollTimer) { clearInterval(tdTmPollTimer); tdTmPollTimer = null; }
+                return;
+            }
+            // done
+            if (tdTmPollTimer) { clearInterval(tdTmPollTimer); tdTmPollTimer = null; }
+            const res = data.result;
+            tdRenderTmResult(res);
+            if (badge) { badge.textContent = 'done'; badge.className = 'badge positive'; }
+            showToast('Time Machine complete — ' + (res.mc ? res.mc.win_rate ? (res.mc.win_rate * 100).toFixed(1) + '% win' : 'done' : ''), 'success');
+            tdLoadTmHistory();
+        } catch (e) {
+            console.error('TMPoll error:', e);
+        }
+    };
+    check();
+    tdTmPollTimer = setInterval(check, 3000);
+}
+
+function _tdTmCostRow(label, value) {
+    return '<tr><td>' + label + '</td><td style="text-align:right;">' + value + '</td></tr>';
+}
+
+function tdRenderTmResult(res) {
+    const mcOut = document.getElementById('tdTmMcOut');
+    const wfOut = document.getElementById('tdTmWfOut');
+    if (!mcOut || !wfOut || !res) return;
+
+    const mc = res.mc || {};
+    const hist = res.history || [];
+    const wf = res.walk_forward || [];
+
+    // Monte Carlo card
+    const vr = (mc.p_target || 0) * 100;
+    const vs = (mc.p_stop || 0) * 100;
+    const vn = (mc.p_neither || 0) * 100;
+    const netMed = mc.net_pnl_median || 0;
+    const wr = (mc.win_rate || 0) * 100;
+    const pf = mc.profit_factor || 'N/A';
+
+    const bands = mc.bands || []; // P50/P95 equity path bands
+    let bandSvg = '';
+    if (bands.length) {
+        // Build simple SVG band chart (P50 line + P5/P95 shading)
+        const W = 420, H = 160;
+        const times = mc.band_times || [];
+        const p50 = bands.map(b => b.p50).filter(x => x != null);
+        const p5 = bands.map(b => b.p05).filter(x => x != null);
+        const p95 = bands.map(b => b.p95).filter(x => x != null);
+        if (p50.length) {
+            const maxV = Math.max(...p95, 1);
+            const minV = Math.min(...p5, -1);
+            const scaleY = v => H - 20 - (v - minV) / (maxV - minV) * (H - 40);
+            const scaleX = i => 30 + i * (W - 60) / Math.max(p50.length - 1, 1);
+            const path = (arr, color, dash) => '<path d="M' + arr.map((v, i) => scaleX(i) + ',' + scaleY(v)).join(' L') + '" stroke="' + color + '" stroke-width="2" fill="none" ' + (dash ? 'stroke-dasharray="4,4"' : '') + '/>';
+            bandSvg = '<svg width="' + W + '" height="' + H + '" style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;">' +
+                '<defs><linearGradient id="bandGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(16,185,129,0.15)"/><stop offset="100%" stop-color="rgba(239,68,68,0.15)"/></linearGradient></defs>' +
+                '<path d="M' + p50.map((v, i) => scaleX(i) + ',' + scaleY(v)).join(' L') +
+                ' L' + p95.slice().reverse().map((v, i) => scaleX(p50.length - 1 - i) + ',' + scaleY(v)).join(' L') + ' Z" fill="url(#bandGrad)"/>' +
+                path(p50, 'var(--accent)') +
+                '<text x="10" y="20" font-size="11" fill="var(--text-primary)">P50 Equity Path</text>' +
+                '<text x="10" y="36" font-size="10" fill="var(--text-muted)">Shaded: P5–P95 band</text>' +
+                '</svg>';
+        }
+    }
+
+    mcOut.innerHTML =
+        '<div class="td-grid">' +
+        '<div><table><tbody>' +
+        _tdTmCostRow('<b>Target first</b>', vr.toFixed(1) + '%') +
+        _tdTmCostRow('<b>Stop first</b>', vs.toFixed(1) + '%') +
+        _tdTmCostRow('<b>Neither</b>', vn.toFixed(1) + '%') +
+        _tdTmCostRow('<b>Net P&L median</b>', '₹' + fmtPrice(netMed)) +
+        _tdTmCostRow('<b>Win rate</b>', wr.toFixed(1) + '%') +
+        _tdTmCostRow('<b>Profit factor</b>', pf) +
+        _tdTmCostRow('Sessions in pool', mc.pool_sessions || '—') +
+        _tdTmCostRow('Pool range', (mc.pool_from || '') + ' → ' + (mc.pool_to || '')) +
+        _tdTmCostRow('Until', mc.until || '15:30') +
+        '</tbody></table></div>' +
+        '<div>' + bandSvg + '</div>' +
+        '</div>' +
+        '<p class="td-note"><b>Verdict: </b>' + (res.verdict || '—') + '</p>';
+
+    // Walk-forward table
+    if (wf.length) {
+        const rows = wf.map(s =>
+            '<tr><td>' + s.session + '</td>' +
+            '<td class="' + (s.net_pnl >= 0 ? 'positive' : 'negative') + '">' + '₹' + fmtPrice(s.net_pnl) + '</td>' +
+            '<td>' + (s.win ? 'WIN' : 'LOSS') + '</td>' +
+            '<td>' + (s.hit_target ? 'TGT' : (s.hit_stop ? 'SL' : '—')) + '</td>' +
+            '<td>' + (s.max_dd != null ? '₹' + fmtPrice(s.max_dd) : '—') + '</td></tr>'
+        ).join('');
+        wfOut.innerHTML = '<div class="table-container"><table><thead><tr><th>Session</th><th>Net P&L</th><th>Result</th><th>Exit</th><th>Max DD</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    } else {
+        wfOut.innerHTML = '<p class="placeholder">No walk-forward sessions available (need more history).</p>';
+    }
+}
+
+async function tdLoadTmHistory() {
+    const wrap = document.getElementById('tdTmHist');
+    if (!wrap) return;
+    try {
+        const data = await api('/api/timemachine/history');
+        const runs = (data && data.runs) || [];
+        if (!runs.length) {
+            wrap.innerHTML = '<p class="placeholder">No runs yet.</p>';
+            return;
+        }
+        const rows = runs.map(r =>
+            '<tr><td>' + (r.symbol || (r.plan && r.plan.symbol) || '—') + '</td>' +
+            '<td>' + (r.plan && r.plan.date ? r.plan.date : (r.data && r.data.range ? r.data.range : '—')) + '</td>' +
+            '<td>' + (r.mc ? (r.mc.win_rate ? (r.mc.win_rate * 100).toFixed(1) + '%' : '—') : '—') + '</td>' +
+            '<td>' + (r.mc ? '₹' + fmtPrice(r.mc.net_pnl_median || 0) : '—') + '</td>' +
+            '<td>' + (r.verdict ? r.verdict.slice(0, 80) + '…' : '—') + '</td>' +
+            '<td><button class="btn-secondary td-row-btn" onclick="tdShowTmRun(\'' + (r.created_at || '') + '\')">View</button></td></tr>'
+        ).join('');
+        wrap.innerHTML = '<div class="table-container"><table><thead><tr><th>Symbol</th><th>Date</th><th>Win %</th><th>Median P&L</th><th>Verdict</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    } catch (e) {
+        wrap.innerHTML = '<p class="placeholder">Could not load history: ' + (e.message || e) + '</p>';
+    }
+}
+
+async function tdShowTmRun(createdAt) {
+    try {
+        const data = await api('/api/timemachine/history?full=true');
+        const runs = (data && data.runs) || [];
+        const run = runs.find(r => r.created_at === createdAt);
+        if (run) tdRenderTmResult(run);
+    } catch (e) {
+        showToast('Could not load run: ' + (e.message || e), 'error');
+    }
+}
+
 // ===== TRADER DESK: Entry Timer =====
 const TD_ENTRY_WATCH_KEY = 'tdEntryWatch';
 let tdEntryState = {};      // symbol -> last check result

@@ -1794,9 +1794,44 @@
                     <div id="td-institutional" class="td-sub-content">
                         <div class="card">
                             <div class="card-header">
-                                <h3>Institutional</h3>
+                                <h3>Bulk & Block Deals</h3>
+                                <span class="badge" id="tdInstDealsBadge">idle</span>
                             </div>
-                            <p class="placeholder">Bulk/block deals + SEBI PIT filings — coming next.</p>
+                            <div class="td-controls">
+                                <div class="filter-group">
+                                    <label>Symbol (optional)</label>
+                                    <input type="text" id="tdInstSymbol" placeholder="RELIANCE.NS">
+                                </div>
+                                <div class="filter-group td-actions-row">
+                                    <button class="btn-primary" onclick="tdLoadInstDeals()">Load Deals</button>
+                                </div>
+                            </div>
+                            <p class="td-note">NSE bulk deals (>0.5% equity) and block deals (≥500k shares or ≥₹10 cr). Disclosed post-market — reflects past execution, not a prediction. Flagged rows = your watchlist/portfolio.</p>
+                        </div>
+                        <div class="card mt-2">
+                            <div class="card-header"><h3>Deals</h3></div>
+                            <div id="tdInstDealsOut"><p class="placeholder">Load deals to see bulk/block transactions with live prices.</p></div>
+                        </div>
+
+                        <div class="card mt-2">
+                            <div class="card-header">
+                                <h3>SEBI PIT Filings</h3>
+                                <span class="badge" id="tdInstPitBadge">idle</span>
+                            </div>
+                            <div class="td-controls">
+                                <div class="filter-group">
+                                    <label>Symbol (optional)</label>
+                                    <input type="text" id="tdPitSymbol" placeholder="RELIANCE.NS">
+                                </div>
+                                <div class="filter-group td-actions-row">
+                                    <button class="btn-primary" onclick="tdLoadPit()">Load PIT Filings</button>
+                                </div>
+                            </div>
+                            <p class="td-note">Promoter/director disclosures under SEBI Prohibition of Insider Trading (PIT) regulations. No public JSON API; cached data shown if available.</p>
+                        </div>
+                        <div class="card mt-2">
+                            <div class="card-header"><h3>Filings</h3></div>
+                            <div id="tdPitOut"><p class="placeholder">Load PIT filings to see insider disclosures.</p></div>
                         </div>
                     </div>
 
@@ -1804,9 +1839,52 @@
                     <div id="td-analyst" class="td-sub-content">
                         <div class="card">
                             <div class="card-header">
-                                <h3>Analyst</h3>
+                                <h3>Quarterly Facts</h3>
+                                <span class="badge" id="tdAnFactBadge">idle</span>
                             </div>
-                            <p class="placeholder">Quarterly facts and metrics (SEBI LODR Reg 33) — coming next.</p>
+                            <div class="td-controls">
+                                <div class="filter-group">
+                                    <label>Symbol</label>
+                                    <input type="text" id="tdAnSymbol" placeholder="RELIANCE.NS">
+                                </div>
+                                <div class="filter-group">
+                                    <label>Quarters</label>
+                                    <select id="tdAnQuarters">
+                                        <option value="8">8 (2 years)</option>
+                                        <option value="4">4 (1 year)</option>
+                                        <option value="12">12 (3 years)</option>
+                                    </select>
+                                </div>
+                                <div class="filter-group td-actions-row">
+                                    <button class="btn-primary" onclick="tdLoadAnFacts()">Load Facts</button>
+                                </div>
+                            </div>
+                            <p class="td-note">Quarterly financials from SEBI LODR Reg 33 corporate filings via Downstox. Revenue, PAT, margins, EPS in ₹ Cr. All figures normalized to INR crores.</p>
+                        </div>
+                        <div class="card mt-2">
+                            <div class="card-header"><h3>Statement</h3></div>
+                            <div id="tdAnFactsOut"><p class="placeholder">Load facts to see the quarterly statement.</p></div>
+                        </div>
+
+                        <div class="card mt-2">
+                            <div class="card-header">
+                                <h3>TTM Metrics</h3>
+                                <span class="badge" id="tdAnMetBadge">idle</span>
+                            </div>
+                            <div class="td-controls">
+                                <div class="filter-group">
+                                    <label>Symbols (comma-separated)</label>
+                                    <input type="text" id="tdAnMetricsSymbols" placeholder="RELIANCE.NS,TCS.NS,HDFCBANK.NS,INFY.NS,ICICIBANK.NS" style="width:100%;">
+                                </div>
+                                <div class="filter-group td-actions-row">
+                                    <button class="btn-primary" onclick="tdLoadAnMetrics()">Load Metrics</button>
+                                </div>
+                            </div>
+                            <p class="td-note">Trailing-12-month metrics table: revenue, PAT, EPS, operating/net margin, P/E, P/B, ROE, ROCE, debt/equity.</p>
+                        </div>
+                        <div class="card mt-2">
+                            <div class="card-header"><h3>Metrics Table</h3></div>
+                            <div id="tdAnMetricsOut"><p class="placeholder">Load metrics to see the comparison table.</p></div>
                         </div>
                     </div>
 
@@ -2838,6 +2916,7 @@
 <script src="/static/js/chart/symbol-search.js?v=1.0"></script>
 <script src="/static/js/chart/indicator-registry.js?v=1.0"></script>
 <script src="/static/js/chart/chart-toolbar.js?v=1.0"></script>
+<script src="/static/js/chart/crosshair-legend.js?v=1.0"></script>
 <script src="/static/js/app.js?v=4.6"></script>
 </body>
 </html>

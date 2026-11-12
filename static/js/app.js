@@ -479,100 +479,16 @@ function initChartChart() {
     const container = document.getElementById('chartContainerChart');
     if (!container) return;
 
-    chartChart = LightweightCharts.createChart(container, {
-        width: container.clientWidth,
-        height: container.clientHeight,
-        layout: {
-            background: { color: '#0a0a0f' },
-            textColor: '#8888a0',
-            fontSize: 11,
-            fontFamily: 'JetBrains Mono, monospace'
-        },
-        grid: {
-            vertLines: { color: 'rgba(255,255,255,0.04)' },
-            horzLines: { color: 'rgba(255,255,255,0.04)' }
-        },
-        crosshair: {
-            mode: LightweightCharts.CrosshairMode.Normal,
-            vertLine: { color: '#3b82f6', width: 1, style: 2 },
-            horzLine: { color: '#3b82f6', width: 1, style: 2 }
-        },
-        rightPriceScale: {
-            borderColor: 'rgba(255,255,255,0.06)',
-            scaleMargins: { top: 0.1, bottom: 0.2 }
-        },
-        timeScale: {
-            borderColor: 'rgba(255,255,255,0.06)',
-            timeVisible: true,
-            secondsVisible: false
-        }
-    });
+    // Use the new unified ChartController
+    window.chartController = new ChartController('chartContainerChart');
+    window.chartController.init();
 
-    candleSeriesChart = chartChart.addCandlestickSeries({
-        upColor: '#10b981',
-        downColor: '#ef4444',
-        borderDownColor: '#ef4444',
-        borderUpColor: '#10b981',
-        wickDownColor: '#ef4444',
-        wickUpColor: '#10b981',
-        lastValueVisible: false,
-        priceLineVisible: false
-    });
-
-    volumeSeriesChart = chartChart.addHistogramSeries({
-        priceFormat: { type: 'volume' },
-        priceScaleId: 'volume',
-        lastValueVisible: false,
-        priceLineVisible: false
-    });
-    chartChart.priceScale('volume').applyOptions({
-        scaleMargins: { top: 0.8, bottom: 0 }
-    });
-
-    // EMA series
-    const emaConfigsChart = [
-        { key: 'ema9', length: 9, color: '#38bdf8', width: 1 },
-        { key: 'ema21', length: 21, color: '#3b82f6', width: 2 },
-        { key: 'ema50', length: 50, color: '#f59e0b', width: 2 },
-        { key: 'ema200', length: 200, color: '#a855f7', width: 2 }
-    ];
-    emaConfigsChart.forEach(({ key, color, width }) => {
-        emaSeriesChart[key] = chartChart.addLineSeries({
-            color: color,
-            lineWidth: width,
-            title: '',
-            priceLineVisible: false,
-            lastValueVisible: false,
-            crosshairMarkerVisible: false
-        });
-    });
-
-    // VWAP series
-    const vwapConfigsChart = [
-        { key: 'vwap', color: '#eab308', width: 2, style: 0 },
-        { key: 'upper1', color: 'rgba(234,179,8,0.45)', width: 1, style: 1 },
-        { key: 'lower1', color: 'rgba(234,179,8,0.45)', width: 1, style: 1 },
-        { key: 'upper2', color: 'rgba(239,68,68,0.35)', width: 1, style: 2 },
-        { key: 'lower2', color: 'rgba(16,185,129,0.35)', width: 1, style: 2 }
-    ];
-    vwapConfigsChart.forEach(({ key, color, width, style }) => {
-        vwapSeriesChart[key] = chartChart.addLineSeries({
-            color: color,
-            lineWidth: width,
-            lineStyle: style,
-            title: '',
-            priceLineVisible: false,
-            lastValueVisible: false,
-            crosshairMarkerVisible: false
-        });
-    });
-
-    // Resize handler
-    new ResizeObserver(() => {
-        if (chartChart && container) {
-            chartChart.resize(container.clientWidth, container.clientHeight);
-        }
-    }).observe(container);
+    // Expose chart and series for backward compatibility
+    chartChart = window.chartController.chart;
+    candleSeriesChart = window.chartController.candleSeries;
+    volumeSeriesChart = window.chartController.volumeSeries;
+    emaSeriesChart = window.chartController.emaSeries;
+    vwapSeriesChart = window.chartController.vwapSeries;
 
     // Initialize drawing event handlers
     initChartDrawingEvents();
@@ -7020,6 +6936,162 @@ async function tdShowTmRun(createdAt) {
         if (run) tdRenderTmResult(run);
     } catch (e) {
         showToast('Could not load run: ' + (e.message || e), 'error');
+    }
+}
+
+// ===== TRADER DESK: Institutional =====
+async function tdLoadInstDeals() {
+    const g = id => document.getElementById(id);
+    const badge = document.getElementById('tdInstDealsBadge');
+    const out = document.getElementById('tdInstDealsOut');
+    const sym = (g('tdInstSymbol').value || '').trim().toUpperCase() || null;
+    if (sym && !sym.includes('.')) sym += '.NS';
+
+    if (badge) { badge.textContent = 'loading…'; badge.className = 'badge'; }
+    try {
+        const url = sym ? '/api/institutional/deals?symbol=' + encodeURIComponent(sym) : '/api/institutional/deals';
+        const data = await api(url);
+        if (!data || data.error) {
+            showToast((data && (data.detail || data.error)) || 'Failed', 'error');
+            if (badge) { badge.textContent = 'error'; badge.className = 'badge negative'; }
+            return;
+        }
+        const deals = data.deals || [];
+        const rows = deals.map(d => {
+            const live = '<span data-live-price>₹' + fmtPrice(d.price) + '</span> <span data-live-change-pct class="muted"></span>';
+            const flag = d.flagged ? ' <span class="td-chip td-chip-triggered">YOUR WATCH</span>' : '';
+            return '<tr class="td-hit-row" data-live-symbol="' + d.symbol + '">' +
+                '<td><b>' + (d.symbol || '').replace('.NS', '') + '</b></td>' +
+                '<td>' + (d.deal_type || d.type || '') + '</td>' +
+                '<td>' + (d.client || '—') + '</td>' +
+                '<td>' + (d.quantity ? d.quantity.toLocaleString('en-IN') : '—') + '</td>' +
+                '<td>' + live + '</td>' +
+                '<td>₹' + (d.value ? (d.value / 1e7).toFixed(2) + ' Cr' : '—') + '</td>' +
+                '<td>' + (d.date || '') + flag + '</td></tr>';
+        }).join('');
+        out.innerHTML = '<div class="table-container"><table><thead><tr><th>Symbol</th><th>Type</th><th>Client</th><th>Qty</th><th>Price</th><th>Value</th><th>Date</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+        if (badge) { badge.textContent = deals.length + ' deals'; badge.className = 'badge' + (deals.length ? ' positive' : ''); }
+        applyLiveDomQuotes(out);
+        refreshLiveSubscriptions();
+    } catch (e) {
+        showToast('Load failed: ' + (e.message || e), 'error');
+        if (badge) { badge.textContent = 'error'; badge.className = 'badge negative'; }
+    }
+}
+
+async function tdLoadPit() {
+    const g = id => document.getElementById(id);
+    const badge = document.getElementById('tdInstPitBadge');
+    const out = document.getElementById('tdPitOut');
+    const sym = (g('tdPitSymbol').value || '').trim().toUpperCase() || null;
+    if (sym && !sym.includes('.')) sym += '.NS';
+
+    if (badge) { badge.textContent = 'loading…'; badge.className = 'badge'; }
+    try {
+        const url = sym ? '/api/institutional/pit?symbol=' + encodeURIComponent(sym) : '/api/institutional/pit';
+        const data = await api(url);
+        if (!data || data.error) {
+            showToast((data && (data.detail || data.error)) || 'Failed', 'error');
+            if (badge) { badge.textContent = 'error'; badge.className = 'badge negative'; }
+            return;
+        }
+        const filings = data.filings || [];
+        if (!filings.length) {
+            out.innerHTML = '<p class="placeholder">No PIT filings available (SEBI does not publish a public JSON API). ' +
+                'Check sebi.gov.in → "Insider Trading" disclosures for PDFs.</p>';
+            if (badge) { badge.textContent = 'empty'; badge.className = 'badge'; }
+            return;
+        }
+        const rows = filings.map(f =>
+            '<tr><td>' + (f.symbol || '').replace('.NS', '') + '</td>' +
+            '<td>' + (f.insider_name || f.name || '—') + '</td>' +
+            '<td>' + (f.insider_category || f.category || '—') + '</td>' +
+            '<td>' + (f.transaction_type || f.type || '—') + '</td>' +
+            '<td>' + (f.quantity ? f.quantity.toLocaleString('en-IN') : '—') + '</td>' +
+            '<td>₹' + (f.price ? fmtPrice(f.price) : '—') + '</td>' +
+            '<td>' + (f.date || '') + '</td>' +
+            '<td>' + (f.mode || '—') + '</td></tr>'
+        ).join('');
+        out.innerHTML = '<div class="table-container"><table><thead><tr><th>Symbol</th><th>Insider</th><th>Category</th><th>Type</th><th>Qty</th><th>Price</th><th>Date</th><th>Mode</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+        if (badge) { badge.textContent = filings.length + ' filings'; badge.className = 'badge positive'; }
+    } catch (e) {
+        showToast('Load failed: ' + (e.message || e), 'error');
+        if (badge) { badge.textContent = 'error'; badge.className = 'badge negative'; }
+    }
+}
+
+// ===== TRADER DESK: Analyst =====
+async function tdLoadAnFacts() {
+    const g = id => document.getElementById(id);
+    const badge = document.getElementById('tdAnFactBadge');
+    const out = document.getElementById('tdAnFactsOut');
+    const sym = (g('tdAnSymbol').value || '').trim().toUpperCase() || 'RELIANCE.NS';
+    const quarters = parseInt(g('tdAnQuarters').value, 10) || 8;
+    if (!sym.includes('.')) sym += '.NS';
+
+    if (badge) { badge.textContent = 'loading…'; badge.className = 'badge'; }
+    try {
+        const data = await api('/api/analyst/facts/' + sym + '?quarters=' + quarters);
+        if (!data || data.error) {
+            showToast((data && (data.detail || data.error)) || 'Failed', 'error');
+            if (badge) { badge.textContent = 'error'; badge.className = 'badge negative'; }
+            return;
+        }
+        const st = data.statement || [];
+        const rows = st.map(q =>
+            '<tr><td>' + q.quarter + '</td>' +
+            '<td>₹' + fmtPrice(q.revenue_cr || 0) + ' Cr</td>' +
+            '<td>₹' + fmtPrice(q.pat_cr || 0) + ' Cr</td>' +
+            '<td>' + (q.margin_pct != null ? q.margin_pct.toFixed(2) + '%' : '—') + '</td>' +
+            '<td>' + (q.yoy_pct != null ? (q.yoy_pct >= 0 ? '+' : '') + q.yoy_pct.toFixed(2) + '%' : '—') + '</td>' +
+            '<td>' + (q.eps != null ? '₹' + fmtPrice(q.eps) : '—') + '</td></tr>'
+        ).join('');
+        const latest = data.latest || {};
+        out.innerHTML =
+            '<p class="td-note"><b>' + data.name + ' (' + data.symbol + ')</b> · Sector: ' + data.sector +
+            ' · TTM Revenue: ₹' + fmtPrice(latest.revenue_cr || 0) + ' Cr · TTM PAT: ₹' + fmtPrice(latest.pat_cr || 0) + ' Cr</p>' +
+            '<div class="table-container"><table><thead><tr><th>Quarter</th><th>Revenue</th><th>PAT</th><th>Margin %</th><th>YoY %</th><th>EPS</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+            '<p class="td-note">' + (data.note || '') + '</p>';
+        if (badge) { badge.textContent = 'loaded'; badge.className = 'badge positive'; }
+    } catch (e) {
+        showToast('Load failed: ' + (e.message || e), 'error');
+        if (badge) { badge.textContent = 'error'; badge.className = 'badge negative'; }
+    }
+}
+
+async function tdLoadAnMetrics() {
+    const g = id => document.getElementById(id);
+    const badge = document.getElementById('tdAnMetBadge');
+    const out = document.getElementById('tdAnMetricsOut');
+    const syms = (g('tdAnMetricsSymbols').value || 'RELIANCE.NS,TCS.NS,HDFCBANK.NS,INFY.NS,ICICIBANK.NS').trim();
+    if (badge) { badge.textContent = 'loading…'; badge.className = 'badge'; }
+    try {
+        const data = await api('/api/analyst/metrics?symbols=' + encodeURIComponent(syms));
+        if (!data || data.error) {
+            showToast((data && (data.detail || data.error)) || 'Failed', 'error');
+            if (badge) { badge.textContent = 'error'; badge.className = 'badge negative'; }
+            return;
+        }
+        const rows = (data.metrics || []).map(m =>
+            '<tr><td><b>' + m.symbol + '</b></td>' +
+            '<td>' + (m.name || '') + '</td>' +
+            '<td>' + (m.sector || '') + '</td>' +
+            '<td>₹' + fmtPrice(m.ttm_revenue_cr || 0) + ' Cr</td>' +
+            '<td>₹' + fmtPrice(m.ttm_pat_cr || 0) + ' Cr</td>' +
+            '<td>' + (m.ttm_eps ? '₹' + fmtPrice(m.ttm_eps) : '—') + '</td>' +
+            '<td>' + (m.operating_margin_pct ? m.operating_margin_pct.toFixed(2) + '%' : '—') + '</td>' +
+            '<td>' + (m.net_margin_pct ? m.net_margin_pct.toFixed(2) + '%' : '—') + '</td>' +
+            '<td>' + (m.pe_ratio != null ? m.pe_ratio.toFixed(1) : '—') + '</td>' +
+            '<td>' + (m.pb_ratio != null ? m.pb_ratio.toFixed(1) : '—') + '</td>' +
+            '<td>' + (m.roe_pct ? m.roe_pct.toFixed(2) + '%' : '—') + '</td>' +
+            '<td>' + (m.roce_pct ? m.roce_pct.toFixed(2) + '%' : '—') + '</td>' +
+            '<td>' + (m.debt_equity != null ? m.debt_equity.toFixed(2) : '—') + '</td></tr>'
+        ).join('');
+        out.innerHTML = '<div class="table-container"><table><thead><tr><th>Symbol</th><th>Name</th><th>Sector</th><th>TTM Rev</th><th>TTM PAT</th><th>EPS</th><th>Op Margin</th><th>Net Margin</th><th>P/E</th><th>P/B</th><th>ROE</th><th>ROCE</th><th>D/E</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+        if (badge) { badge.textContent = (data.metrics || []).length + ' symbols'; badge.className = 'badge positive'; }
+    } catch (e) {
+        showToast('Load failed: ' + (e.message || e), 'error');
+        if (badge) { badge.textContent = 'error'; badge.className = 'badge negative'; }
     }
 }
 

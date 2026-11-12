@@ -3,6 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import json
 import asyncio
+import time
 from datetime import datetime
 from api import (
     stocks, screener, signals, portfolio, sector, tools,
@@ -131,17 +132,39 @@ ws_manager = ConnectionManager()
 LIVE_PRICE_POLL_SECONDS = 3
 DEFAULT_LIVE_SYMBOLS = ["^NSEI", "^NSEBANK", "^BSESN"]
 
+# In-memory quote cache to avoid Upstox rate limits (UDAPI10005)
+_live_price_cache = {}
+_live_price_cache_ttl = 5  # seconds
+
 
 async def _fetch_live_prices(symbols):
-    """Fetch legacy-shaped quotes off the event loop."""
-    prices_raw = await asyncio.to_thread(upstox_data.get_quotes, list(symbols))
+    """Fetch legacy-shaped quotes off the event loop, with caching."""
+    now = time.time()
+    symbols = list(symbols)
+    
+    # Check cache first
+    to_fetch = []
+    cached_results = {}
+    for sym in symbols:
+        entry = _live_price_cache.get(sym)
+        if entry and (now - entry["ts"]) < _live_price_cache_ttl:
+            cached_results[sym] = entry["data"]
+        else:
+            to_fetch.append(sym)
+    
+    if to_fetch:
+        prices_raw = await asyncio.to_thread(upstox_data.get_quotes, to_fetch)
+        for sym, q in prices_raw.items():
+            _live_price_cache[sym] = {"ts": now, "data": q}
+            cached_results[sym] = q
+    
     return {
         sym: {
             "price": q["price"],
             "change": q["change"],
             "changePercent": q["changePercent"],
         }
-        for sym, q in prices_raw.items()
+        for sym, q in cached_results.items()
     }
 
 

@@ -5914,8 +5914,8 @@ async function triggerSentinelRoutine(routineType) {
     }
 }
 
-// Init
-document.addEventListener('DOMContentLoaded', () => {
+// Init - run immediately if DOM is already loaded (script at end of body), otherwise wait for DOMContentLoaded
+function initApp() {
     // Theme auto-detection
     const savedTheme = localStorage.getItem('theme');
     if (savedTheme === 'light') { document.body.classList.add('light-theme'); }
@@ -5963,13 +5963,19 @@ document.addEventListener('DOMContentLoaded', () => {
         setInterval(loadVolumeAlerts, 300000);
     }, 2000);
 
-// Connect WebSocket for live index prices
+    // Connect WebSocket for live index prices
     setTimeout(connectWebSocket, 1000);
 
     // Initialize Sentinel AI Desk & Web Audio UI
     updateSentinelAudioUI();
     setTimeout(initSentinelWebSocket, 1500);
-});
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initApp);
+} else {
+    initApp();
+}
 
 async function showUpstoxSubTab(tabId, btn) {
     document.querySelectorAll('.upstox-sub-content').forEach(t => t.classList.remove('active'));

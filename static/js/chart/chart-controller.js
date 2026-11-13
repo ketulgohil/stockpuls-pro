@@ -40,12 +40,15 @@ class ChartController {
             },
             rightPriceScale: {
                 borderColor: 'rgba(255,255,255,0.06)',
-                scaleMargins: { top: 0.1, bottom: 0.2 }
+                scaleMargins: { top: 0.08, bottom: 0.08 },
+                autoScale: true
             },
             timeScale: {
                 borderColor: 'rgba(255,255,255,0.06)',
                 timeVisible: true,
-                secondsVisible: false
+                secondsVisible: false,
+                rightOffset: 5,
+                barSpacing: 6
             },
             handleScale: {
                 mouseWheel: true,
@@ -67,8 +70,13 @@ class ChartController {
             borderUpColor: '#10b981',
             wickDownColor: '#ef4444',
             wickUpColor: '#10b981',
-            lastValueVisible: false,
-            priceLineVisible: false
+            lastValueVisible: true,
+            priceLineVisible: false,
+            priceFormat: {
+                type: 'price',
+                precision: 2,
+                minMove: 0.01
+            }
         });
 
         this.volumeSeries = this.chart.addHistogramSeries({

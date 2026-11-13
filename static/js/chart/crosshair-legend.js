@@ -364,16 +364,25 @@ const ChartCrosshairLegend = {
     updatePriceMarker(point) {
         if (!this.priceMarkerLine || !this.candleSeries) return;
 
-        // Convert chart coordinate to price
-        const priceScale = this.candleSeries.priceScale();
-        const price = priceScale.coordinateToPrice(point.y);
-        if (price !== null && price !== undefined) {
-            try {
+        // Convert chart coordinate to price - handle v4 API differences
+        try {
+            const priceScale = this.candleSeries.priceScale();
+            // In Lightweight Charts v4, coordinateToPrice might not be available on series price scale
+            // Try chart's price scale instead, or use coordinateToPrice if available
+            let price = null;
+            if (typeof priceScale?.coordinateToPrice === 'function') {
+                price = priceScale.coordinateToPrice(point.y);
+            } else if (this.chart && typeof this.chart.priceScale()?.coordinateToPrice === 'function') {
+                price = this.chart.priceScale().coordinateToPrice(point.y);
+            }
+            if (price !== null && price !== undefined) {
                 this.priceMarkerLine.applyOptions({
                     price: Number(price.toFixed(2)),
                     title: 'Current: ₹' + Number(price).toFixed(2)
                 });
-            } catch (e) {}
+            }
+        } catch (e) {
+            // Silently ignore - price marker is optional UI
         }
     },
 

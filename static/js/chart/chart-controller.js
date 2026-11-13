@@ -234,6 +234,10 @@ class ChartController {
             window.ChartCrosshairLegend.setCurrentCandles(normCandles);
         }
 
+        // Add marker for live daily candle (last candle if isLive)
+        this.addLiveCandleMarker(normCandles);
+
+
         if (this.chart) {
             this.chart.timeScale().fitContent();
         }
@@ -242,6 +246,32 @@ class ChartController {
         this.updateIndicators(normCandles);
     }
 
+
+    addLiveCandleMarker(candles) {
+        if (!this.chart) return;
+        // Remove existing live markers
+        if (this.liveMarker) {
+            try { this.chart.removeTimeScaleMarker(this.liveMarker); } catch(e) {}
+            this.liveMarker = null;
+        }
+        // Find last live candle
+        const liveCandle = [...candles].reverse().find(c => c.isLive);
+        if (liveCandle) {
+            try {
+                this.liveMarker = this.chart.addTimeScaleMarker({
+                    time: liveCandle.time,
+                    position: "aboveBar",
+                    color: "#f59e0b",
+                    shape: "arrowDown",
+                    text: "LIVE",
+                    fontSize: 10,
+                    fontWeight: "bold"
+                });
+            } catch(e) {
+                console.warn("Could not add live candle marker:", e);
+            }
+        }
+    },
     updateIndicators(candles) {
         if (!candles || !candles.length || !window.ChartIndicatorRegistry) return;
         const active = window.ChartIndicatorRegistry.activeIndicators;

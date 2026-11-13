@@ -10,7 +10,8 @@ const ChartDataAdapter = {
             high: Number(d.high),
             low: Number(d.low),
             close: Number(d.close),
-            volume: Number(d.volume || 0)
+            volume: Number(d.volume || 0),
+            isLive: d.isLive || false  // Preserve live marker
         })).sort((a, b) => new Date(a.time) - new Date(b.time));
     },
 

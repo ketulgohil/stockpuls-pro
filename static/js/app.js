@@ -570,6 +570,52 @@ const TIMEFRAME_CONFIG = {
     '1h':   { period: '1d', interval: '1h' },   // 1 day of 1-hour candles
 };
 
+/**
+ * Fetch intraday candles (5m) for today and build a live daily OHLC candle.
+ * Returns { time: 'YYYY-MM-DD', open, high, low, close, volume } or null.
+ */
+async function fetchTodayLiveDaily(symbol) {
+    try {
+        // Fetch 5m candles for today (period=1d, interval=5m)
+        const url = `/api/stocks/${symbol}/history?period=1d&interval=5m`;
+        const data = await api(url);
+        
+        if (data.error || !data.data || data.data.length === 0) return null;
+        
+        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+        const intraday = data.data.filter(d => d.date.startsWith(today));
+        
+        if (intraday.length === 0) return null;
+        
+        // Aggregate to daily OHLC
+        const opens = intraday.map(d => Number(d.open));
+        const highs = intraday.map(d => Number(d.high));
+        const lows = intraday.map(d => Number(d.low));
+        const closes = intraday.map(d => Number(d.close));
+        const volumes = intraday.map(d => Number(d.volume || 0));
+        
+        const todayCandle = {
+            time: today,
+            open: opens[0],
+            high: Math.max(...highs),
+            low: Math.min(...lows),
+            close: closes[closes.length - 1], // Latest close (live)
+            volume: volumes.reduce((a, b) => a + b, 0)
+        };
+        
+        // Only return if we have valid data
+        if (!Number.isFinite(todayCandle.open) || !Number.isFinite(todayCandle.high) || 
+            !Number.isFinite(todayCandle.low) || !Number.isFinite(todayCandle.close)) {
+            return null;
+        }
+        
+        return todayCandle;
+    } catch (e) {
+        console.warn('[fetchTodayLiveDaily] Failed:', e);
+        return null;
+    }
+}
+
 async function loadChartChart(symbolArg) {
     const thisRequestId = ++chartRequestId;
     console.log('[loadChartChart] START', { requestId: thisRequestId, symbolArg });
@@ -681,6 +727,21 @@ async function loadChartChart(symbolArg) {
         // Sort by time ascending
         candles.sort((a, b) => new Date(a.time) - new Date(b.time));
 
+        // For daily timeframe, append today's live daily candle if market is open
+        if (tf === '1d') {
+            const today = new Date().toISOString().split('T')[0];
+            const lastCandle = candles[candles.length - 1];
+            // Only append if we don't already have today's candle
+            if (!lastCandle || lastCandle.time !== today) {
+                const liveDaily = await fetchTodayLiveDaily(symbol);
+                if (liveDaily) {
+                    liveDaily.isLive = true; // Mark as live for visual indicator
+                    candles.push(liveDaily);
+                    console.log('[loadChartChart] Appended live daily candle for', today, liveDaily);
+                }
+            }
+        }
+
         // Fetch stock info and price using clean un-namespaced ticker if needed
         try {
             const rawTick = displaySymbol(symbol);
@@ -695,8 +756,9 @@ async function loadChartChart(symbolArg) {
             }
         }
 
-        const volumes = data.data.map(d => ({
-            time: d.date,
+        // Build volumes array from candles (includes live daily if appended)
+        const volumes = candles.map(d => ({
+            time: d.time,
             value: d.volume || 0,
             color: d.close >= d.open ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'
         }));

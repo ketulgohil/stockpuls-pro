@@ -271,7 +271,7 @@ class ChartController {
                 console.warn("Could not add live candle marker:", e);
             }
         }
-    },
+    }
     updateIndicators(candles) {
         if (!candles || !candles.length || !window.ChartIndicatorRegistry) return;
         const active = window.ChartIndicatorRegistry.activeIndicators;

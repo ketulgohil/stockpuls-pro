@@ -572,7 +572,7 @@ const TIMEFRAME_CONFIG = {
 
 /**
  * Fetch intraday candles (5m) for today and build a live daily OHLC candle.
- * Returns { time: 'YYYY-MM-DD', open, high, low, close, volume } or null.
+ * Returns { time: 'YYYY-MM-DD', open, high, low, close, volume, isLive: true } or null.
  */
 async function fetchTodayLiveDaily(symbol) {
     try {
@@ -585,33 +585,61 @@ async function fetchTodayLiveDaily(symbol) {
         const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
         const intraday = data.data.filter(d => d.date.startsWith(today));
         
-        if (intraday.length === 0) return null;
-        
-        // Aggregate to daily OHLC
-        const opens = intraday.map(d => Number(d.open));
-        const highs = intraday.map(d => Number(d.high));
-        const lows = intraday.map(d => Number(d.low));
-        const closes = intraday.map(d => Number(d.close));
-        const volumes = intraday.map(d => Number(d.volume || 0));
-        
-        const todayCandle = {
-            time: today,
-            open: opens[0],
-            high: Math.max(...highs),
-            low: Math.min(...lows),
-            close: closes[closes.length - 1], // Latest close (live)
-            volume: volumes.reduce((a, b) => a + b, 0)
-        };
-        
-        // Only return if we have valid data
-        if (!Number.isFinite(todayCandle.open) || !Number.isFinite(todayCandle.high) || 
-            !Number.isFinite(todayCandle.low) || !Number.isFinite(todayCandle.close)) {
-            return null;
+        if (intraday.length > 0) {
+            // Aggregate to daily OHLC from intraday data
+            const opens = intraday.map(d => Number(d.open));
+            const highs = intraday.map(d => Number(d.high));
+            const lows = intraday.map(d => Number(d.low));
+            const closes = intraday.map(d => Number(d.close));
+            const volumes = intraday.map(d => Number(d.volume || 0));
+            
+            return {
+                time: today,
+                open: opens[0],
+                high: Math.max(...highs),
+                low: Math.min(...lows),
+                close: closes[closes.length - 1], // Latest close (live)
+                volume: volumes.reduce((a, b) => a + b, 0)
+            };
         }
         
-        return todayCandle;
+        // Fallback: if no intraday data yet, try to build from live LTP (WebSocket)
+        const liveQuote = getLiveQuote(symbol);
+        if (liveQuote && liveQuote.price > 0) {
+            // We have live price but no intraday history - create a minimal live candle
+            // Use previous close as open, LTP as close, and build high/low from LTP
+            const rawCandles = await fetchRecentDailyCandles(symbol, 1);
+            if (rawCandles && rawCandles.length > 0) {
+                const prevClose = rawCandles[0].close;
+                const ltp = liveQuote.price;
+                return {
+                    time: today,
+                    open: prevClose,
+                    high: Math.max(prevClose, ltp),
+                    low: Math.min(prevClose, ltp),
+                    close: ltp,
+                    volume: 0 // Unknown until intraday data arrives
+                };
+            }
+        }
+        
+        return null;
     } catch (e) {
         console.warn('[fetchTodayLiveDaily] Failed:', e);
+        return null;
+    }
+}
+
+/**
+ * Fetch the most recent completed daily candle(s) for fallback.
+ */
+async function fetchRecentDailyCandles(symbol, limit) {
+    try {
+        const url = `/api/stocks/${symbol}/history?period=5d&interval=1d`;
+        const data = await api(url);
+        if (data.error || !data.data || data.data.length === 0) return null;
+        return data.data.slice(-limit);
+    } catch (e) {
         return null;
     }
 }

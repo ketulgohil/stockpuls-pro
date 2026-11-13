@@ -5510,6 +5510,30 @@ function updateChartFreshness(date) {
     }
 }
 
+// Live quote cache helpers (used by WS message handler and applyLiveDomQuotes)
+function getLiveQuote(symbol) {
+    return liveQuoteCache.get(normalizeSymbol(symbol));
+}
+
+function getLiveQuoteTimestamp(symbol) {
+    return liveQuoteCacheTS.get(normalizeSymbol(symbol)) || 0;
+}
+
+function cacheLiveQuotes(prices) {
+    const now = Date.now();
+    Object.entries(prices || {}).forEach(([symbol, quote]) => {
+        const price = Number(quote && quote.price);
+        if (!Number.isFinite(price) || price <= 0) return;
+        const norm = normalizeSymbol(symbol);
+        liveQuoteCache.set(norm, {
+            price: price,
+            change: Number(quote.change) || 0,
+            changePercent: Number(quote.changePercent) || 0
+        });
+        liveQuoteCacheTS.set(norm, now);
+    });
+}
+
 function collectLiveDomSymbols() {
     const ordered = new Set();
     const addFrom = (root) => {

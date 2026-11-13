@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from typing import Optional
 from core.portfolio import (
     get_portfolio, add_holding, remove_holding, sell_holding, get_realized_trades,
-    add_dividend, apply_corp_action, get_dividend_records,
+    add_dividend, apply_corp_action, get_dividend_records, set_holding_decision,
     get_watchlist, add_to_watchlist, remove_from_watchlist
 )
 from core.data_fetcher import get_live_price
@@ -21,6 +21,10 @@ class HoldingRequest(BaseModel):
 class SellRequest(BaseModel):
     quantity: float
     price: Optional[float] = None
+
+
+class PortfolioDecisionRequest(BaseModel):
+    decision: str
 
 
 class DividendRequest(BaseModel):
@@ -98,6 +102,15 @@ def sell_portfolio_holding(symbol: str, request: SellRequest, auth: bool = Depen
     result = sell_holding(symbol, request.quantity, request.price)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.post("/portfolio/{symbol}/decision")
+def set_portfolio_decision(symbol: str, request: PortfolioDecisionRequest, auth: bool = Depends(verify_api_key)):
+    result = set_holding_decision(symbol, request.decision)
+    if "error" in result:
+        status = 404 if "not found" in result["error"].lower() else 400
+        raise HTTPException(status_code=status, detail=result["error"])
     return result
 
 

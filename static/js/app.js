@@ -1910,7 +1910,11 @@ window.showTab = function(tabName) {
                 setTimeout(waitForContainer, 50);
             }
         };
-        requestAnimationFrame(waitForContainer);
+        // Don't start waitForContainer immediately - give CSS time to apply display:flex
+        // Use a small delay to let the tab's display:flex take effect
+        setTimeout(() => {
+            requestAnimationFrame(waitForContainer);
+        }, 100);
     }
     if (tabName === 'upstox-intraday') {
         initUpstoxDesk();
@@ -2315,7 +2319,7 @@ async function loadPortfolio() {
     if (data.holdings && data.holdings.length > 0) {
         container.innerHTML = `
             <table>
-                <thead><tr><th>Symbol</th><th>Qty</th><th>Buy Price</th><th>LTP</th><th>Day P&L</th><th>P&L</th><th>Action</th></tr></thead>
+                <thead><tr><th>Symbol</th><th>Qty</th><th>Buy Price</th><th>LTP</th><th>Day P&L</th><th>P&L</th><th>Decision</th><th>Action</th></tr></thead>
                 <tbody>
                     ${data.holdings.map(h => `
                         <tr data-live-symbol="${h.symbol}" data-live-qty="${h.quantity}" data-live-buy="${h.buyPrice}">
@@ -2325,6 +2329,9 @@ async function loadPortfolio() {
                             <td data-live-price>${fmtPrice(h.currentPrice || h.buyPrice)}</td>
                             <td class="${(h.dayChangePnl || 0) >= 0 ? 'positive' : 'negative'}" data-live-daypnl>${(h.dayChangePnl || 0) >= 0 ? '+' : '-'}₹${Math.abs(h.dayChangePnl || 0).toFixed(2)}</td>
                             <td class="${(h.pnl || 0) >= 0 ? 'positive' : 'negative'}" data-live-pnl>${(h.pnl || 0) >= 0 ? '+' : '-'}₹${Math.abs(h.pnl || 0).toFixed(2)} (${(h.pnlPercent || 0) >= 0 ? '+' : ''}${(h.pnlPercent || 0).toFixed(2)}%)</td>
+                            <td><div class="portfolio-decision-group" role="group" aria-label="Set decision for ${h.symbol.replace('.NS', '')}">
+                                ${['BUY', 'SELL', 'HOLD'].map(decision => `<button type="button" class="portfolio-decision-btn decision-${decision.toLowerCase()} ${h.decision === decision ? 'selected' : ''}" aria-pressed="${h.decision === decision}" onclick="setPortfolioDecision('${h.symbol}', '${decision}')">${decision}</button>`).join('')}
+                            </div></td>
                             <td>
                                 <button class="btn-secondary" style="padding:4px 10px; font-size:12px;" onclick="selectStock('${h.symbol}'); showTab('chart')" title="Open live chart">Chart</button>
                                 <button class="btn-secondary" style="padding:4px 10px; font-size:12px;" onclick="toggleSellRow('${h.symbol}', ${h.quantity}, ${h.currentPrice || h.buyPrice})">Sell</button>
@@ -2332,7 +2339,7 @@ async function loadPortfolio() {
                             </td>
                         </tr>
                         <tr class="portfolio-sell-row" id="sellRow-${h.symbol}" style="display:none">
-                            <td colspan="7" style="padding:10px 12px;">
+                            <td colspan="8" style="padding:10px 12px;">
                                 <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
                                     <span style="font-weight:600;">Sell ${h.symbol.replace('.NS', '')}</span>
                                     <span style="font-size:12px; color:var(--text-secondary);">(you hold ${h.quantity})</span>
@@ -2357,6 +2364,28 @@ async function loadPortfolio() {
     applyLiveDomQuotes();
     loadRealizedPnl();
     loadDividendData();
+}
+
+async function setPortfolioDecision(symbol, decision) {
+    const res = await api(`/api/portfolio/${encodeURIComponent(symbol)}/decision`, {
+        method: 'POST',
+        body: JSON.stringify({ decision })
+    });
+    const error = res.error || res.detail;
+    if (error) {
+        showToast(error, 'negative');
+        return;
+    }
+
+    const holding = portfolioHoldingsCache.find(item => item.symbol === symbol);
+    if (holding) holding.decision = decision;
+    const row = document.querySelector(`#portfolioTable tr[data-live-symbol="${CSS.escape(symbol)}"]`);
+    row?.querySelectorAll('.portfolio-decision-btn').forEach(button => {
+        const selected = button.textContent.trim() === decision;
+        button.classList.toggle('selected', selected);
+        button.setAttribute('aria-pressed', String(selected));
+    });
+    showToast(`${displaySymbol(symbol)} marked ${decision}`, 'success');
 }
 
 // ===== ALLOCATION DONUT (per-stock weights) =====

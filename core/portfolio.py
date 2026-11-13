@@ -53,6 +53,23 @@ def add_holding(symbol: str, quantity: float, buy_price: float) -> dict:
     return new_holding
 
 
+def set_holding_decision(symbol: str, decision: str) -> dict:
+    """Save a user's Buy/Sell/Hold decision label on a portfolio holding."""
+    decision = str(decision or "").strip().upper()
+    if decision not in {"BUY", "SELL", "HOLD"}:
+        return {"error": "Decision must be BUY, SELL, or HOLD"}
+
+    data = _load_json(PORTFOLIO_FILE)
+    holding = next((h for h in data.get("holdings", []) if h.get("symbol") == symbol), None)
+    if not holding:
+        return {"error": f"Holding {symbol} not found"}
+
+    holding["decision"] = decision
+    holding["decisionUpdatedAt"] = datetime.now().isoformat()
+    _save_json(PORTFOLIO_FILE, data)
+    return {"symbol": symbol, "decision": decision, "decisionUpdatedAt": holding["decisionUpdatedAt"]}
+
+
 def remove_holding(symbol: str) -> bool:
     data = _load_json(PORTFOLIO_FILE)
     holdings = data.get("holdings", [])

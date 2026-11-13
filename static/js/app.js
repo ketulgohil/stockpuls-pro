@@ -1835,11 +1835,28 @@ window.showTab = function(tabName) {
     _originalShowTabChart2(tabName);
     if (tabName === 'chart') {
         console.log('[showTab] chart tab activated');
+        // Force the tab to be visible immediately (bypass animation for layout)
+        const chartTab = document.getElementById('chart');
+        if (chartTab) {
+            chartTab.style.display = 'flex';
+            // Add class to disable animation for layout
+            chartTab.classList.add('chart-visible');
+        }
         // Wait for tab to be fully visible and container to have dimensions
         const waitForContainer = () => {
             const container = document.getElementById('chartContainerChart');
-            if (container && container.clientWidth > 0 && container.clientHeight > 0) {
+            if (!container) {
+                console.log('[showTab] container not found, retrying...');
+                requestAnimationFrame(waitForContainer);
+                return;
+            }
+            // Force reflow to ensure layout is computed
+            container.offsetHeight;
+            if (container.clientWidth > 0 && container.clientHeight > 0) {
                 console.log('[showTab] container ready:', container.clientWidth, 'x', container.clientHeight);
+                // Remove the temporary class after layout is stable
+                const ct = document.getElementById('chart');
+                if (ct) ct.classList.remove('chart-visible');
                 if (!chartChart) {
                     console.log('[showTab] initializing chartChart');
                     initChartChart();
@@ -1870,7 +1887,8 @@ window.showTab = function(tabName) {
                 loadChartWatchlist();
             } else {
                 console.log('[showTab] waiting for container dimensions...', container?.clientWidth, container?.clientHeight);
-                requestAnimationFrame(waitForContainer);
+                // Use setTimeout as fallback to ensure layout is computed
+                setTimeout(waitForContainer, 50);
             }
         };
         requestAnimationFrame(waitForContainer);

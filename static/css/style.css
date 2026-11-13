@@ -4516,6 +4516,11 @@ body { --chart-bg: var(--bg-card); }
     overflow: hidden;
 }
 
+/* Ensure chart tab is immediately visible for layout computation */
+#chart.tab-content.active.chart-visible {
+    animation: none;
+}
+
 /* All other active tab-content elements get block display + fade */
 .tab-content.active:not(#chart) {
     display: block;

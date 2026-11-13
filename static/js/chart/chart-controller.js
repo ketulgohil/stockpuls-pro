@@ -17,8 +17,19 @@ class ChartController {
     }
 
     init() {
+        console.log('[ChartController.init] Starting, containerId:', this.containerId);
         this.container = document.getElementById(this.containerId);
-        if (!this.container || typeof LightweightCharts === 'undefined') return;
+        console.log('[ChartController.init] Container found:', !!this.container);
+        if (!this.container) {
+            console.error('[ChartController.init] Container not found!');
+            return;
+        }
+        console.log('[ChartController.init] Container dimensions:', this.container.clientWidth, 'x', this.container.clientHeight);
+        if (typeof LightweightCharts === 'undefined') {
+            console.error('[ChartController.init] LightweightCharts not loaded!');
+            return;
+        }
+        console.log('[ChartController.init] LightweightCharts loaded:', typeof LightweightCharts);
 
         this.chart = LightweightCharts.createChart(this.container, {
             width: this.container.clientWidth || 800,
@@ -62,22 +73,7 @@ class ChartController {
                 vertTouchDrag: true
             }
         });
-
-        this.candleSeries = this.chart.addCandlestickSeries({
-            upColor: '#10b981',
-            downColor: '#ef4444',
-            borderDownColor: '#ef4444',
-            borderUpColor: '#10b981',
-            wickDownColor: '#ef4444',
-            wickUpColor: '#10b981',
-            lastValueVisible: true,
-            priceLineVisible: false,
-            priceFormat: {
-                type: 'price',
-                precision: 2,
-                minMove: 0.01
-            }
-        });
+        console.log('[ChartController.init] Candle series created:', !!this.candleSeries);
 
         this.volumeSeries = this.chart.addHistogramSeries({
             priceFormat: { type: 'volume' },
@@ -85,6 +81,7 @@ class ChartController {
             lastValueVisible: false,
             priceLineVisible: false
         });
+        console.log('[ChartController.init] Volume series created:', !!this.volumeSeries);
 
         this.chart.priceScale('volume').applyOptions({
             scaleMargins: { top: 0.8, bottom: 0 }
@@ -97,13 +94,16 @@ class ChartController {
             }
         });
         this.resizeObserver.observe(this.container);
+        console.log('[ChartController.init] ResizeObserver attached');
 
         // Force initial resize after a brief delay to ensure container has dimensions
         setTimeout(() => {
             if (this.chart && this.container) {
+                console.log('[ChartController.init] Force resize after timeout:', this.container.clientWidth, 'x', this.container.clientHeight);
                 this.chart.resize(this.container.clientWidth, this.container.clientHeight);
             }
         }, 50);
+        console.log('[ChartController.init] Initialization complete');
 
         // Create zoom control buttons
         this.createZoomControls();
@@ -220,8 +220,13 @@ class ChartController {
     }
 
     setData(candles, volumes) {
-        if (!this.candleSeries || !this.volumeSeries) return;
+        console.log('[ChartController.setData] Called with', candles?.length, 'candles');
+        if (!this.candleSeries || !this.volumeSeries) {
+            console.warn('[ChartController.setData] Series not ready');
+            return;
+        }
         const normCandles = ChartDataAdapter.normalizeCandles(candles);
+        console.log('[ChartController.setData] Normalized candles:', normCandles.length);
         const normVolumes = volumes || ChartDataAdapter.normalizeVolumes(normCandles);
         this.candleSeries.setData(normCandles);
         this.volumeSeries.setData(normVolumes);

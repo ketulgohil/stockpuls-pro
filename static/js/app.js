@@ -507,13 +507,17 @@ async function initChartChart() {
     if (chartInitPromise) return chartInitPromise;
     if (chartChart) return Promise.resolve();
 
+    console.log('[initChartChart] Starting initialization...');
     chartInitPromise = (async () => {
         const container = document.getElementById('chartContainerChart');
         if (!container) throw new Error('Chart container not found');
+        console.log('[initChartChart] Container found, dimensions:', container.clientWidth, 'x', container.clientHeight);
 
         // Use the new unified ChartController
         window.chartController = new ChartController('chartContainerChart');
+        console.log('[initChartChart] ChartController created, calling init()...');
         window.chartController.init();
+        console.log('[initChartChart] ChartController.init() completed');
 
         // Expose chart and series for backward compatibility
         chartChart = window.chartController.chart;
@@ -521,13 +525,19 @@ async function initChartChart() {
         volumeSeriesChart = window.chartController.volumeSeries;
         emaSeriesChart = window.chartController.emaSeries;
         vwapSeriesChart = window.chartController.vwapSeries;
+        console.log('[initChartChart] Chart and series exposed:', !!chartChart, !!candleSeriesChart, !!volumeSeriesChart);
 
         // Initialize drawing event handlers
         initChartDrawingEvents();
+        console.log('[initChartChart] Drawing events initialized');
     })();
 
     try {
         await chartInitPromise;
+        console.log('[initChartChart] Initialization complete, chartChart:', !!chartChart);
+    } catch (e) {
+        console.error('[initChartChart] ERROR:', e);
+        throw e;
     } finally {
         chartInitPromise = null;
     }
@@ -815,6 +825,7 @@ async function loadChartChart(symbolArg) {
         }));
 
         // Use the new ChartController's setData method which also updates crosshair legend
+        console.log('[loadChartChart] Calling setData with', candles.length, 'candles');
         if (window.chartController) {
             window.chartController.setData(candles, volumes);
         } else {
@@ -1852,6 +1863,14 @@ window.showTab = function(tabName) {
             }
             // Force reflow to ensure layout is computed
             container.offsetHeight;
+            console.log('[showTab] DEBUG container:', {
+                clientWidth: container.clientWidth,
+                clientHeight: container.clientHeight,
+                offsetWidth: container.offsetWidth,
+                offsetHeight: container.offsetHeight,
+                style: container.style.cssText,
+                computed: getComputedStyle(container)
+            });
             if (container.clientWidth > 0 && container.clientHeight > 0) {
                 console.log('[showTab] container ready:', container.clientWidth, 'x', container.clientHeight);
                 // Remove the temporary class after layout is stable

@@ -576,14 +576,21 @@ const TIMEFRAME_CONFIG = {
  */
 async function fetchTodayLiveDaily(symbol) {
     try {
+        console.log('[fetchTodayLiveDaily] Starting for', symbol);
         // Fetch 5m candles for today (period=1d, interval=5m)
         const url = `/api/stocks/${symbol}/history?period=1d&interval=5m`;
+        console.log('[fetchTodayLiveDaily] Fetching:', url);
         const data = await api(url);
+        console.log('[fetchTodayLiveDaily] Response:', data);
         
-        if (data.error || !data.data || data.data.length === 0) return null;
+        if (data.error || !data.data || data.data.length === 0) {
+            console.log('[fetchTodayLiveDaily] No data or error:', data.error);
+            return null;
+        }
         
         const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
         const intraday = data.data.filter(d => d.date.startsWith(today));
+        console.log('[fetchTodayLiveDaily] Intraday candles for today:', intraday.length);
         
         if (intraday.length > 0) {
             // Aggregate to daily OHLC from intraday data
@@ -593,7 +600,7 @@ async function fetchTodayLiveDaily(symbol) {
             const closes = intraday.map(d => Number(d.close));
             const volumes = intraday.map(d => Number(d.volume || 0));
             
-            return {
+            const result = {
                 time: today,
                 open: opens[0],
                 high: Math.max(...highs),
@@ -601,18 +608,23 @@ async function fetchTodayLiveDaily(symbol) {
                 close: closes[closes.length - 1], // Latest close (live)
                 volume: volumes.reduce((a, b) => a + b, 0)
             };
+            console.log('[fetchTodayLiveDaily] Built from intraday:', result);
+            return result;
         }
         
         // Fallback: if no intraday data yet, try to build from live LTP (WebSocket)
+        console.log('[fetchTodayLiveDaily] No intraday data, trying live quote fallback');
         const liveQuote = getLiveQuote(symbol);
+        console.log('[fetchTodayLiveDaily] liveQuote:', liveQuote);
         if (liveQuote && liveQuote.price > 0) {
             // We have live price but no intraday history - create a minimal live candle
             // Use previous close as open, LTP as close, and build high/low from LTP
             const rawCandles = await fetchRecentDailyCandles(symbol, 1);
+            console.log('[fetchTodayLiveDaily] fetchRecentDailyCandles:', rawCandles);
             if (rawCandles && rawCandles.length > 0) {
                 const prevClose = rawCandles[0].close;
                 const ltp = liveQuote.price;
-                return {
+                const result = {
                     time: today,
                     open: prevClose,
                     high: Math.max(prevClose, ltp),
@@ -620,9 +632,12 @@ async function fetchTodayLiveDaily(symbol) {
                     close: ltp,
                     volume: 0 // Unknown until intraday data arrives
                 };
+                console.log('[fetchTodayLiveDaily] Built from live quote:', result);
+                return result;
             }
         }
         
+        console.log('[fetchTodayLiveDaily] No live quote available');
         return null;
     } catch (e) {
         console.warn('[fetchTodayLiveDaily] Failed:', e);
@@ -754,19 +769,27 @@ async function loadChartChart(symbolArg) {
         }
         // Sort by time ascending
         candles.sort((a, b) => new Date(a.time) - new Date(b.time));
+        console.log('[loadChartChart] candles loaded:', candles.length, 'last:', candles[candles.length-1]?.time);
 
         // For daily timeframe, append today's live daily candle if market is open
         if (tf === '1d') {
             const today = new Date().toISOString().split('T')[0];
             const lastCandle = candles[candles.length - 1];
+            console.log('[loadChartChart] tf=1d, today:', today, 'lastCandle:', lastCandle?.time);
             // Only append if we don't already have today's candle
             if (!lastCandle || lastCandle.time !== today) {
+                console.log('[loadChartChart] Attempting to fetch live daily for', today);
                 const liveDaily = await fetchTodayLiveDaily(symbol);
+                console.log('[loadChartChart] fetchTodayLiveDaily returned:', liveDaily);
                 if (liveDaily) {
                     liveDaily.isLive = true; // Mark as live for visual indicator
                     candles.push(liveDaily);
                     console.log('[loadChartChart] Appended live daily candle for', today, liveDaily);
+                } else {
+                    console.log('[loadChartChart] No live daily available (no intraday data and no live quote)');
                 }
+            } else {
+                console.log('[loadChartChart] Today already exists in candles, skipping');
             }
         }
 
@@ -1812,28 +1835,45 @@ window.showTab = function(tabName) {
     _originalShowTabChart2(tabName);
     if (tabName === 'chart') {
         console.log('[showTab] chart tab activated');
-        // Defer until the tab is fully visible so the container has dimensions
-        requestAnimationFrame(() => {
-            if (!chartChart) {
-                console.log('[showTab] initializing chartChart');
-                initChartChart();
-                // Load saved chart workspace (Phase 5)
-                if (window.ChartState) {
-                    window.ChartState.load();
-                    // Restore symbol if no explicit symbol was passed
-                    if (!currentSymbol || currentSymbol === 'RELIANCE.NS') {
-                        const savedSymbol = window.ChartState.symbol || 'RELIANCE.NS';
-                        if (savedSymbol) currentSymbol = savedSymbol;
+        // Wait for tab to be fully visible and container to have dimensions
+        const waitForContainer = () => {
+            const container = document.getElementById('chartContainerChart');
+            if (container && container.clientWidth > 0 && container.clientHeight > 0) {
+                console.log('[showTab] container ready:', container.clientWidth, 'x', container.clientHeight);
+                if (!chartChart) {
+                    console.log('[showTab] initializing chartChart');
+                    initChartChart();
+                    // Load saved chart workspace (Phase 5)
+                    if (window.ChartState) {
+                        window.ChartState.load();
+                        // Restore symbol if no explicit symbol was passed
+                        if (!currentSymbol || currentSymbol === 'RELIANCE.NS') {
+                            const savedSymbol = window.ChartState.symbol || 'RELIANCE.NS';
+                            if (savedSymbol) currentSymbol = savedSymbol;
+                        }
+                        const savedTf = window.ChartState.resolution || '1d';
+                        if (savedTf) {
+                            const tfBtn = document.querySelector(`#chart .tf-btn[data-tf="${savedTf}"]`);
+                            if (tfBtn) tfBtn.click();
+                        }
                     }
-                    const savedTf = window.ChartState.resolution || '1d';
-                    if (savedTf) {
-                        const tfBtn = document.querySelector(`#chart .tf-btn[data-tf="${savedTf}"]`);
-                        if (tfBtn) tfBtn.click();
-                    }
+                } else {
+                    // Chart already initialized - ensure it resizes to new container dimensions
+                    console.log('[showTab] chart already initialized, resizing...');
+                    setTimeout(() => {
+                        if (chartChart) chartChart.resize();
+                        if (window.chartController && window.chartController.chart) {
+                            window.chartController.chart.resize();
+                        }
+                    }, 50);
                 }
+                loadChartWatchlist();
+            } else {
+                console.log('[showTab] waiting for container dimensions...', container?.clientWidth, container?.clientHeight);
+                requestAnimationFrame(waitForContainer);
             }
-            loadChartWatchlist();
-        });
+        };
+        requestAnimationFrame(waitForContainer);
     }
     if (tabName === 'upstox-intraday') {
         initUpstoxDesk();

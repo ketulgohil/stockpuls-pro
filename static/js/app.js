@@ -1664,6 +1664,9 @@ async function openChart(symbol) {
     if (!symbol) return;
     const sym = normalizeSymbol(symbol);
     const disp = displaySymbol(sym);
+    // Set the selection before activating the tab. Its state-restore handler
+    // may run while chart initialization is pending.
+    currentSymbol = sym;
 
     // Update all stock name / badge elements across UI
     document.querySelectorAll('#chartStockName, #currentStockName, #chartSymbolBadge').forEach(el => {
@@ -1686,14 +1689,22 @@ async function openChart(symbol) {
     console.log('[openChart] opening chart for:', sym);
     showTab('chart');
     
-    // Wait for the tab's chart canvas to have real dimensions before init.
-    await initChartChart();
-    await loadChartChart(sym);
-    
-    // Save chart state (Phase 5)
-    if (window.ChartState) {
-        window.ChartState.symbol = sym;
-        window.ChartState.save();
+    try {
+        // Wait for the tab's chart canvas to have real dimensions before init.
+        await initChartChart();
+        await loadChartChart(sym);
+
+        // Save chart state (Phase 5)
+        if (window.ChartState) {
+            window.ChartState.symbol = sym;
+            window.ChartState.save();
+        }
+    } catch (error) {
+        console.error('[openChart] Could not initialize chart:', error);
+        const loading = document.getElementById('chartLoadingChart');
+        if (loading) loading.style.display = 'none';
+        const message = String(error?.message || error).replace(/[<>]/g, '');
+        showChartOverlayChart(`<p class="placeholder">Could not open chart: ${message}</p><button class="btn-secondary" onclick="openChart('${sym}')" style="margin-top:8px;">Retry</button>`);
     }
 }
 

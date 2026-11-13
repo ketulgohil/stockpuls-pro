@@ -4542,6 +4542,13 @@ body { --chart-bg: var(--bg-card); }
     animation: fadeIn 0.3s ease;
 }
 
+/* Ensure portfolio tab displays correctly */
+#portfolio.tab-content.active {
+    display: block;
+    animation: fadeIn 0.3s ease;
+    overflow: visible;
+}
+
 /* Hide chart tab when it is NOT the active tab */
 #chart.tab-content:not(.active) {
     display: none;

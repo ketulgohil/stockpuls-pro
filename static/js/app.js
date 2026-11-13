@@ -232,7 +232,7 @@ function showTab(tabName) {
 
     // Load data for specific tabs
     switch(tabName) {
-        case 'dashboard': stopSectorRefresh(); loadChart(); loadDashboardGainersLosers(); break;
+        case 'dashboard': stopSectorRefresh(); loadDashboardGainersLosers(); break;
         case 'market': stopSectorRefresh(); loadMarket(); break;
         case 'signals': stopSectorRefresh(); loadSignals(); break;
         case 'sector': loadSectors(); break;
@@ -261,12 +261,8 @@ function showTab(tabName) {
 function initChart() {
     const container = document.getElementById('chartContainer');
     if (!container) {
-        // The legacy dashboard chart was replaced by the pro chart
-        // (#chartContainerChart). Initialise that one instead so the chart tab
-        // and the topbar Refresh button keep working.
-        if (typeof initChartChart === 'function' && typeof LightweightCharts !== 'undefined' && !chartChart) {
-            initChartChart();
-        }
+        // The dedicated chart lives in a hidden tab until the user opens it.
+        // Its controller is initialized by the chart-tab visibility handler.
         return;
     }
 
@@ -499,6 +495,25 @@ let chartWsSymbols = new Set();
 // Chart initialization promise: ensures init completes before any load
 let chartInitPromise = null;
 
+function waitForChartContainer(timeoutMs = 5000) {
+    return new Promise((resolve, reject) => {
+        const startedAt = Date.now();
+        const checkDimensions = () => {
+            const container = document.getElementById('chartContainerChart');
+            if (container && container.clientWidth > 0 && container.clientHeight > 0) {
+                resolve(container);
+                return;
+            }
+            if (Date.now() - startedAt >= timeoutMs) {
+                reject(new Error('Chart container did not become visible in time'));
+                return;
+            }
+            requestAnimationFrame(checkDimensions);
+        };
+        checkDimensions();
+    });
+}
+
 // Initialize dedicated chart (idempotent, returns promise)
 async function initChartChart() {
     // Return existing promise if already initializing or initialized
@@ -507,14 +522,9 @@ async function initChartChart() {
 
     console.log('[initChartChart] Starting initialization...');
     chartInitPromise = (async () => {
-        const container = document.getElementById('chartContainerChart');
+        const container = await waitForChartContainer();
         if (!container) throw new Error('Chart container not found');
         console.log('[initChartChart] Container found, dimensions:', container.clientWidth, 'x', container.clientHeight);
-        
-        // Ensure container has valid dimensions before initializing
-        if (container.clientWidth === 0 || container.clientHeight === 0) {
-            throw new Error('Chart container has zero dimensions - tab may be hidden');
-        }
 
         // Use the new unified ChartController
         window.chartController = new ChartController('chartContainerChart');
@@ -583,6 +593,46 @@ const TIMEFRAME_CONFIG = {
     '1h':   { period: '1d', interval: '1h' },   // 1 day of 1-hour candles
 };
 
+// The history API serializes pandas timestamps as ISO datetime strings, while
+// Lightweight Charts expects daily bars as YYYY-MM-DD and intraday bars as
+// Unix seconds. Normalize once before candles reach any chart series.
+function normalizeChartTime(value, interval) {
+    if (value == null) return null;
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return interval === '1d' || interval === '1wk' || interval === '1mo'
+            ? new Date(value * (value < 1e12 ? 1000 : 1)).toISOString().slice(0, 10)
+            : Math.floor(value < 1e12 ? value : value / 1000);
+    }
+
+    const raw = String(value).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    if (interval === '1d' || interval === '1wk' || interval === '1mo') {
+        const dateMatch = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+        return dateMatch ? dateMatch[1] : null;
+    }
+
+    const milliseconds = Date.parse(raw);
+    return Number.isFinite(milliseconds) ? Math.floor(milliseconds / 1000) : null;
+}
+
+function chartDateKeyIST(value = new Date()) {
+    const date = value instanceof Date ? value : new Date(value);
+    if (!Number.isFinite(date.getTime())) return '';
+    const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(date);
+    const part = Object.fromEntries(parts.map(item => [item.type, item.value]));
+    return `${part.year}-${part.month}-${part.day}`;
+}
+
+function apiCandleDateKeyIST(value) {
+    const raw = String(value || '').trim();
+    // API intraday strings are formatted in IST without a timezone suffix.
+    const localDate = raw.match(/^(\d{4}-\d{2}-\d{2})(?:\s|T00:00:00(?:\.\d+)?$)/);
+    if (localDate && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw)) return localDate[1];
+    return chartDateKeyIST(raw);
+}
+
 /**
  * Fetch intraday candles (5m) for today and build a live daily OHLC candle.
  * Returns { time: 'YYYY-MM-DD', open, high, low, close, volume, isLive: true } or null.
@@ -601,8 +651,8 @@ async function fetchTodayLiveDaily(symbol) {
             return null;
         }
         
-        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-        const intraday = data.data.filter(d => d.date.startsWith(today));
+        const today = chartDateKeyIST();
+        const intraday = data.data.filter(d => apiCandleDateKeyIST(d.date) === today);
         console.log('[fetchTodayLiveDaily] Intraday candles for today:', intraday.length);
         
         if (intraday.length > 0) {
@@ -769,7 +819,8 @@ async function loadChartChart(symbolArg) {
         const candles = [];
         for (const d of rawCandles) {
             const o = Number(d.open), h = Number(d.high), l = Number(d.low), c = Number(d.close), v = Number(d.volume || 0);
-            const t = d.date;
+            const t = normalizeChartTime(d.date, tfConfig.interval);
+            if (t == null) continue;
             if (!Number.isFinite(o) || !Number.isFinite(h) || !Number.isFinite(l) || !Number.isFinite(c)) continue;
             if (l > Math.min(o, c) || h < Math.max(o, c)) continue; // low ≤ open/close ≤ high
             if (v < 0) continue;
@@ -784,25 +835,22 @@ async function loadChartChart(symbolArg) {
         candles.sort((a, b) => new Date(a.time) - new Date(b.time));
         console.log('[loadChartChart] candles loaded:', candles.length, 'last:', candles[candles.length-1]?.time);
 
-        // For daily timeframe, append today's live daily candle if market is open
+        // For daily timeframe, refresh today's bar from intraday candles. The
+        // daily endpoint may already contain a partial/stale current-day bar.
         if (tf === '1d') {
-            const today = new Date().toISOString().split('T')[0];
-            const lastCandle = candles[candles.length - 1];
-            console.log('[loadChartChart] tf=1d, today:', today, 'lastCandle:', lastCandle?.time);
-            // Only append if we don't already have today's candle
-            if (!lastCandle || lastCandle.time !== today) {
-                console.log('[loadChartChart] Attempting to fetch live daily for', today);
-                const liveDaily = await fetchTodayLiveDaily(symbol);
-                console.log('[loadChartChart] fetchTodayLiveDaily returned:', liveDaily);
-                if (liveDaily) {
-                    liveDaily.isLive = true; // Mark as live for visual indicator
-                    candles.push(liveDaily);
-                    console.log('[loadChartChart] Appended live daily candle for', today, liveDaily);
-                } else {
-                    console.log('[loadChartChart] No live daily available (no intraday data and no live quote)');
-                }
-            } else {
-                console.log('[loadChartChart] Today already exists in candles, skipping');
+            const today = chartDateKeyIST();
+            const dailyIndex = candles.findIndex(c => c.time === today);
+            console.log('[loadChartChart] refreshing IST daily bar:', today, 'existing index:', dailyIndex);
+            const liveDaily = await fetchTodayLiveDaily(symbol);
+            if (thisRequestId !== chartRequestId) return;
+            if (liveDaily) {
+                liveDaily.isLive = true;
+                if (dailyIndex >= 0) candles.splice(dailyIndex, 1);
+                candles.push(liveDaily);
+                candles.sort((a, b) => String(a.time).localeCompare(String(b.time)));
+                console.log('[loadChartChart] Upserted today daily candle:', liveDaily);
+            } else if (dailyIndex < 0) {
+                console.log('[loadChartChart] No intraday aggregate available for today');
             }
         }
 
@@ -1638,10 +1686,7 @@ async function openChart(symbol) {
     console.log('[openChart] opening chart for:', sym);
     showTab('chart');
     
-    // Wait for tab to be active, then load chart
-    // The showTab wrapper now defers initChartChart via requestAnimationFrame
-    // We wait a frame for the tab to render, then ensure init completes
-    await new Promise(r => requestAnimationFrame(r));
+    // Wait for the tab's chart canvas to have real dimensions before init.
     await initChartChart();
     await loadChartChart(sym);
     
@@ -1846,7 +1891,19 @@ document.getElementById('chartWatchlistSearch')?.addEventListener('keydown', (e)
 const _originalShowTabChart2 = window.showTab;
 window.showTab = function(tabName) {
     console.log('[showTab] called with:', tabName);
+    
+    // Cleanup when leaving chart tab
+    const chartTab = document.getElementById('chart');
+    if (chartTab && chartTab.classList.contains('active') && tabName !== 'chart') {
+        console.log('[showTab] Leaving chart tab, cleaning up...');
+        chartTab.style.display = '';
+        chartTab.classList.remove('chart-visible');
+        // Force reflow to ensure layout updates
+        chartTab.offsetHeight;
+    }
+    
     _originalShowTabChart2(tabName);
+    
     if (tabName === 'chart') {
         console.log('[showTab] chart tab activated');
         // Force the tab to be visible immediately (bypass animation for layout)
@@ -2344,7 +2401,7 @@ async function loadPortfolio() {
                             <td class="${(h.pnl || 0) >= 0 ? 'positive' : 'negative'}" data-live-pnl>${(h.pnl || 0) >= 0 ? '+' : '-'}₹${Math.abs(h.pnl || 0).toFixed(2)} (${(h.pnlPercent || 0) >= 0 ? '+' : ''}${(h.pnlPercent || 0).toFixed(2)}%)</td>
                             <td><span class="portfolio-recommendation recommendation-${(h.recommendation || 'pending').toLowerCase()}" title="${(h.recommendationSignals || []).map(s => `${s.indicator}: ${s.type} (${s.strength})`).join('&#10;') || 'Waiting for the next daily portfolio scan'}">${h.recommendation || 'PENDING'}</span>${h.recommendationScannedAt ? `<small class="portfolio-recommendation-time">${new Date(h.recommendationScannedAt).toLocaleDateString('en-IN')}</small>` : ''}</td>
                             <td>
-                                <button class="btn-secondary" style="padding:4px 10px; font-size:12px;" onclick="selectStock('${h.symbol}'); showTab('chart')" title="Open live chart">Chart</button>
+                                <button class="btn-secondary" style="padding:4px 10px; font-size:12px;" onclick="selectStock('${h.symbol}')" title="Open live chart">Chart</button>
                                 <button class="btn-secondary" style="padding:4px 10px; font-size:12px;" onclick="toggleSellRow('${h.symbol}', ${h.quantity}, ${h.currentPrice || h.buyPrice})">Sell</button>
                                 <button class="btn-danger" onclick="removePortfolio('${h.symbol}')">Remove</button>
                             </td>

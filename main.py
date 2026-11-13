@@ -8,8 +8,8 @@ from datetime import datetime
 from api import (
     stocks, screener, signals, portfolio, sector, tools,
     news, backtest, market, compare, patterns,
-    correlation, breadth, fundamentals, analysis, alerts, export, ai, gemini, advanced, more, features, gold, analytics,
-    mutual_funds, currency, block_deals, quarterly_results, screener_strategies, downstox, sentinel, upstox_trading,
+    correlation, breadth, fundamentals, analysis, alerts, export, ai, gemini, advanced, more, features,
+    mutual_funds, block_deals, quarterly_results, screener_strategies, downstox, sentinel, upstox_trading,
     exit, budget, risk, scanner, entry, timemachine, analyst, alerts, broker, institutional, news, dashboard, auth
 )
 from core.auth import verify_api_key
@@ -82,10 +82,7 @@ app.include_router(broker.router)
 app.include_router(institutional.router)
 app.include_router(more.router)
 app.include_router(features.router)
-app.include_router(gold.router)
-app.include_router(analytics.router)
 app.include_router(mutual_funds.router)
-app.include_router(currency.router)
 app.include_router(block_deals.router)
 app.include_router(quarterly_results.router)
 app.include_router(screener_strategies.router)

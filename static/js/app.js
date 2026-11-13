@@ -247,7 +247,6 @@ function showTab(tabName) {
         case 'features': stopSectorRefresh(); loadFeaturesTab(); break;
         case 'gold': stopSectorRefresh(); loadGoldPrices(); break;
         case 'mutualfunds': stopSectorRefresh(); loadMutualFunds(); break;
-        case 'currency': stopSectorRefresh(); loadQuickRates(); break;
         case 'results': stopSectorRefresh(); loadUpcomingResults(); break;
         case 'invest': stopSectorRefresh(); loadSuperinvestors(); break;
         case 'portfolio': stopSectorRefresh(); loadPortfolio(); loadPortfolioAnalytics(); loadBenchmark(); break;
@@ -4833,59 +4832,6 @@ async function calculateSIP() {
     }
 }
 
-// ===== CURRENCY CONVERTER =====
-async function convertCurrency() {
-    const amount = parseFloat(document.getElementById('convertAmount').value);
-    const from = document.getElementById('convertFrom').value;
-    const to = document.getElementById('convertTo').value;
-    const data = await api('/api/currency/convert', {
-        method: 'POST', body: JSON.stringify({ amount, fromCurrency: from, toCurrency: to })
-    });
-    const container = document.getElementById('convertResult');
-    if (data.convertedAmount) {
-        container.innerHTML = `
-            <div class="analytics-summary" style="grid-template-columns: repeat(3, 1fr);">
-                <div class="analytics-card"><span class="label">From</span><span class="value">${data.amount} ${data.from}</span></div>
-                <div class="analytics-card"><span class="label">Rate</span><span class="value">${data.rate}</span></div>
-                <div class="analytics-card"><span class="label">To</span><span class="value positive">${data.convertedAmount.toLocaleString()} ${data.to}</span></div>
-            </div>
-        `;
-    } else {
-        container.innerHTML = '<p class="placeholder">Could not fetch rate</p>';
-    }
-}
-
-async function loadQuickRates() {
-    const container = document.getElementById('quickRates');
-    container.innerHTML = '<p class="placeholder">Loading rates...</p>';
-    const currencies = ['USD', 'EUR', 'GBP', 'JPY', 'AED', 'SGD'];
-    const rates = [];
-    for (const cur of currencies) {
-        const data = await api(`/api/currency/rate/${cur}`);
-        if (data && data.rate) rates.push(data);
-    }
-    if (rates.length > 0) {
-        container.innerHTML = `
-            <table>
-                <thead><tr><th>Currency</th><th>Rate (to INR)</th><th>Change</th><th>52W High</th><th>52W Low</th></tr></thead>
-                <tbody>
-                    ${rates.map(r => `
-                        <tr>
-                            <td><strong>${r.from}</strong></td>
-                            <td>₹${r.rate}</td>
-                            <td class="${r.change >= 0 ? 'positive' : 'negative'}">${fmtChg(r.changePct)}%</td>
-                            <td>₹${r.high52w}</td>
-                            <td>₹${r.low52w}</td>
-                        </tr>
-                    `).join('')}
-                </tbody>
-            </table>
-        `;
-    } else {
-        container.innerHTML = '<p class="placeholder">Could not load rates</p>';
-    }
-}
-
 // ===== QUARTERLY RESULTS =====
 async function loadUpcomingResults() {
     const container = document.getElementById('upcomingResults');
@@ -8865,13 +8811,13 @@ const UpstoxDesk = {
             return;
         }
         tbody.innerHTML = this.positions.map(p => `
-            <tr data-pos-id="${p.position_id}">
+            <tr data-pos-id="${p.position_id || p.id}">
                 <td><a href="#" class="upx-symbol" onclick="openStockChart('${p.symbol}'); return false;">${(p.symbol || '').replace('.NS', '')}</a></td>
                 <td>${p.quantity}</td>
                 <td>₹${(p.entry_price || 0).toFixed(2)}</td>
-                <td class="upx-posltp">₹${(p.last_price || p.entry_price || 0).toFixed(2)}</td>
-                <td class="upx-pospnl ${(p.mtm || 0) >= 0 ? 'positive' : 'negative'}">${(p.mtm || 0) >= 0 ? '+' : '-'}₹${Math.abs(p.mtm || 0).toFixed(2)}</td>
-                <td><button class="upx-btn-danger" onclick="squareOffPosition('${p.position_id}')">Square Off</button></td>
+                <td class="upx-posltp">₹${(p.last_price || p.current_price || p.entry_price || 0).toFixed(2)}</td>
+                <td class="upx-pospnl ${(p.mtm || p.unrealized_pnl || 0) >= 0 ? 'positive' : 'negative'}">${(p.mtm || p.unrealized_pnl || 0) >= 0 ? '+' : '-'}₹${Math.abs(p.mtm || p.unrealized_pnl || 0).toFixed(2)}</td>
+                <td><button class="upx-btn-danger" onclick="squareOffPosition('${p.position_id || p.id}')">Square Off</button></td>
             </tr>`).join('');
         this.updatePaperLtp();
     },

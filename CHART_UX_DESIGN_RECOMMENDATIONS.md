@@ -636,3 +636,124 @@ This can become a practical learning and strategy review feature.
 The most valuable first change is to make the chart feel precise and trustworthy before adding a large number of tools. Implement the crosshair legend, live candle updates, clean symbol search, reliable drawing selection, clear data status, and chart-linked alerts first.
 
 Once those foundations work well, add configurable indicators, layouts, replay, and advanced drawings. Keep ORB, Indian session context, and risk visualization as the platform's distinctive layer.
+
+
+
+I want you to add an end-to-end stock recommendation and performance-tracking feature to this existing app. First inspect the repository and identify how its current portfolio, signals, data providers, charts, database, background jobs, and frontend work. Do not assume prior documentation is accurate if the code differs.
+
+The app is an Indian stock-market analytics platform. The repository has used FastAPI/Python, a JavaScript frontend, Upstox market data, and portfolio data stored in local files. Relevant areas may include:
+- core/signals.py and api/signals.py for technical BUY/SELL signals
+- core/intraday/signals.py and api/upstox_trading.py for intraday confluence signals
+- core/ai_analysis.py for combined analysis and news sentiment
+- api/portfolio.py and core/portfolio.py for holdings
+- static/js/app.js and static/index.html for portfolio UI
+- db/ and core/trader_core/storage/ for persistence
+
+Verify which of these are currently used before choosing an implementation. Reuse the app’s existing data and signal sources where appropriate. Do not replace the existing stack or create a second recommendation system without explaining why.
+
+## Product goal
+
+For every stock currently in the user’s portfolio, show an app-generated recommendation:
+- BUY
+- SELL
+- HOLD
+- NO_DATA / NOT_ENOUGH_DATA when the app cannot support a recommendation
+
+Recommendations should be based on the app’s existing analysis tools and relevant portfolio context. At minimum, consider available technical signals, trend, timeframe, and current holding information such as average buy price and quantity. If a reliable recommendation cannot be customized with the available information, say so in the UI rather than inventing user preferences or data.
+
+Clearly distinguish:
+- A daily/swing recommendation based on historical technical data
+- An intraday signal based on live intraday data
+
+Do not mix these into one unlabeled recommendation. Show the recommendation’s timeframe, generated timestamp, data timestamp/source, and a concise explanation of the signals that contributed to it. Show the contributing signals even when they conflict.
+
+## Recommendation rules and trust
+
+- Inspect and document the current signal logic before implementing aggregation.
+- Define a transparent, deterministic method for combining signals into BUY/SELL/HOLD. Explain how conflicting signals, neutral results, insufficient history, stale prices, and provider failures are handled.
+- Do not label a signal “AI” unless an actual AI model generated it.
+- Never display BUY/SELL/HOLD as guaranteed, certain, or personalized financial advice.
+- Do not place live broker orders. Recommendations are informational and must not change portfolio quantities or cash.
+- Keep user-authored notes or labels separate from generated recommendations.
+
+## Daily scans
+
+Scan every current portfolio holding once per NSE trading day, after the regular market session, using Asia/Kolkata time. Verify whether the project already has a scheduler and use it if suitable. The scan must:
+- Include every holding present at scan time.
+- Run outside request handling so opening the portfolio does not wait for a full scan.
+- Recover safely after an app restart and avoid running the same completed scan repeatedly that day.
+- Record scan completion, failures, and per-symbol data availability.
+- Avoid overwriting concurrent portfolio changes.
+- Show the latest available recommendation and its age if today’s scan has not completed.
+- Handle weekends and market holidays sensibly; if holiday data is unavailable, state the limitation rather than pretending the scan ran on a trading day.
+- Offer an explicit manual rescan only if it can be rate-limited and made safe.
+
+## Track whether recommendations worked
+
+Persist an immutable record for each generated recommendation. Do not overwrite the original recommendation when later scans produce a new one. Include enough information to reproduce and evaluate it, such as:
+- Symbol and exchange
+- Recommendation and horizon/timeframe
+- Generated time and market-data “as of” time
+- Entry/reference price at generation
+- Signal scores, reasons, and strategy/version
+- Relevant holding context at generation, where available
+- Evaluation status and evaluation timestamps
+
+Define “worked” before implementing it. Evaluate recommendations over explicit horizons suitable for the recommendation type, for example the next trading session, 5 trading sessions, and 20 trading sessions for daily recommendations. Define objective outcomes such as:
+- Forward return after estimated fees/slippage
+- Whether price moved in the recommended direction
+- Maximum favorable/adverse movement, if the required data is available
+- Whether an explicit target or stop was reached, only if the strategy defines those levels
+
+For HOLD, define a meaningful outcome, such as avoided downside or remaining within a specified neutral range. Do not count a HOLD as a success merely because no BUY/SELL target exists.
+
+Prevent look-ahead bias:
+- Use only data available at recommendation time.
+- Do not evaluate against a price that predates the recommendation timestamp.
+- Handle market closures, missing candles, splits, bonuses, dividends, and delisted/unavailable symbols.
+- Record estimated transaction costs and slippage, or clearly label results as gross returns if costs cannot be modeled.
+- Mark incomplete horizons as pending, not as failures.
+
+## Performance dashboard
+
+Add a portfolio recommendation-performance view with:
+- Total recommendations and counts by BUY/SELL/HOLD/NO_DATA
+- Success rate with the exact success definition visible
+- Average and median forward return by recommendation, horizon, and strategy
+- Benchmark comparison, preferably an appropriate Indian market index when reliable data is available
+- Pending, failed-to-evaluate, and stale-data counts
+- Filters by date range, symbol, recommendation type, horizon, and strategy version
+
+Show sample size and uncertainty. Do not present a success rate without its denominator, evaluation horizon, or success definition. Avoid claiming predictive power from a small sample.
+
+## Engineering requirements
+
+1. Map the existing code flow and data ownership before changing files.
+2. Propose a short implementation plan based on what is actually present.
+3. Implement the backend recommendation service, persistence, daily scan, outcome evaluator, and authenticated API endpoints using the project’s existing patterns.
+4. Implement the portfolio recommendation column and performance view in the existing frontend.
+5. Add database migrations if required. Prefer durable shared storage for production; do not treat ephemeral local files or an in-memory cache as durable history.
+6. Use Asia/Kolkata consistently for market-day boundaries and timestamps.
+7. Make provider timeouts, rate limits, missing data, retries, and duplicate scans explicit.
+8. Keep request handlers responsive and avoid fetching history once per holding every time the portfolio page opens.
+9. Add tests for aggregation rules, time boundaries, duplicate scheduling, persistence, concurrent portfolio changes, no-data handling, evaluation horizons, look-ahead prevention, and performance calculations.
+10. Run the relevant tests and report their results. Do not claim success if tests were not run.
+
+## Acceptance criteria
+
+- Every portfolio holding displays the latest generated recommendation, its horizon, timestamp, and concise rationale—or an honest NO_DATA state.
+- A daily scan covers all current holdings and persists a result that survives reloads/restarts.
+- A new recommendation creates a new immutable history record instead of overwriting prior results.
+- Outcomes remain pending until their defined evaluation horizon is complete.
+- Performance statistics can be traced to stored records and their visible definitions.
+- Recommendations never execute trades or mutate holding quantities.
+- Missing, stale, conflicting, or incomplete data is visible and cannot silently become a confident BUY or SELL.
+- The existing chart, portfolio, signals, and live-data flows continue to work.
+
+At completion, summarize:
+- What existing tools and data sources you reused
+- The recommendation and success definitions
+- Files changed and any migration steps
+- Scheduler behavior and operational assumptions
+- Tests run and their outcomes
+- Known limitations and any data source required for production reliability

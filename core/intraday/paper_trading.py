@@ -225,6 +225,12 @@ class PaperTradingDesk:
 
         total_portfolio_value = self.cash + current_value
 
+        # Add aliases for frontend compatibility
+        for pos in self.positions:
+            pos["last_price"] = pos.get("current_price")
+            pos["mtm"] = pos.get("unrealized_pnl", 0.0)
+            pos["position_id"] = pos.get("id")
+
         return {
             "initial_capital": self.initial_capital,
             "cash": self.cash,
@@ -233,6 +239,7 @@ class PaperTradingDesk:
             "total_portfolio_value": total_portfolio_value,
             "realized_pnl": realized_pnl,
             "unrealized_pnl": unrealized_pnl,
+            "mtm": unrealized_pnl,  # Frontend expects 'mtm'
             "open_positions_count": open_count,
             "closed_positions_count": closed_count,
             "positions": self.positions

@@ -711,6 +711,9 @@ async function loadChartChart(symbolArg) {
         }
         clearChartOverlayChart();
 
+        // Hide loading spinner after successful chart load
+        if (loadingEl) loadingEl.style.display = 'none';
+
         // Force chart resize to ensure correct dimensions
         setTimeout(() => {
             if (chartChart) chartChart.resize();

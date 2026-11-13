@@ -360,10 +360,8 @@ function initChart() {
 
 async function loadChart() {
     // Legacy chart container is gone; the Live Chart tab uses loadChartChart().
+    // Do NOT initialize chart here - it will be initialized when the Chart tab is shown.
     if (!document.getElementById('chartContainer')) {
-        if (typeof loadChartChart === 'function') {
-            return loadChartChart(currentSymbol);
-        }
         return;
     }
     showLoading();
@@ -512,6 +510,11 @@ async function initChartChart() {
         const container = document.getElementById('chartContainerChart');
         if (!container) throw new Error('Chart container not found');
         console.log('[initChartChart] Container found, dimensions:', container.clientWidth, 'x', container.clientHeight);
+        
+        // Ensure container has valid dimensions before initializing
+        if (container.clientWidth === 0 || container.clientHeight === 0) {
+            throw new Error('Chart container has zero dimensions - tab may be hidden');
+        }
 
         // Use the new unified ChartController
         window.chartController = new ChartController('chartContainerChart');
@@ -1878,21 +1881,31 @@ window.showTab = function(tabName) {
                 if (ct) ct.classList.remove('chart-visible');
                 if (!chartChart) {
                     console.log('[showTab] initializing chartChart');
-                    initChartChart();
-                    // Load saved chart workspace (Phase 5)
-                    if (window.ChartState) {
-                        window.ChartState.load();
-                        // Restore symbol if no explicit symbol was passed
-                        if (!currentSymbol || currentSymbol === 'RELIANCE.NS') {
-                            const savedSymbol = window.ChartState.symbol || 'RELIANCE.NS';
-                            if (savedSymbol) currentSymbol = savedSymbol;
+                    initChartChart().then(() => {
+                        // Load saved chart workspace (Phase 5)
+                        if (window.ChartState) {
+                            window.ChartState.load();
+                            // Restore symbol if no explicit symbol was passed
+                            if (!currentSymbol || currentSymbol === 'RELIANCE.NS') {
+                                const savedSymbol = window.ChartState.symbol || 'RELIANCE.NS';
+                                if (savedSymbol) currentSymbol = savedSymbol;
+                            }
+                            const savedTf = window.ChartState.resolution || '1d';
+                            if (savedTf) {
+                                const tfBtn = document.querySelector(`#chart .tf-btn[data-tf="${savedTf}"]`);
+                                if (tfBtn) tfBtn.click();
+                            }
                         }
-                        const savedTf = window.ChartState.resolution || '1d';
-                        if (savedTf) {
-                            const tfBtn = document.querySelector(`#chart .tf-btn[data-tf="${savedTf}"]`);
-                            if (tfBtn) tfBtn.click();
+                    }).catch((e) => {
+                        console.error('[showTab] initChartChart failed:', e);
+                        // If init failed due to zero dimensions, retry after a delay
+                        if (e.message && e.message.includes('zero dimensions')) {
+                            console.log('[showTab] Retrying init after dimension error...');
+                            setTimeout(() => {
+                                if (!chartChart) waitForContainer();
+                            }, 100);
                         }
-                    }
+                    });
                 } else {
                     // Chart already initialized - ensure it resizes to new container dimensions
                     console.log('[showTab] chart already initialized, resizing...');
@@ -2329,9 +2342,7 @@ async function loadPortfolio() {
                             <td data-live-price>${fmtPrice(h.currentPrice || h.buyPrice)}</td>
                             <td class="${(h.dayChangePnl || 0) >= 0 ? 'positive' : 'negative'}" data-live-daypnl>${(h.dayChangePnl || 0) >= 0 ? '+' : '-'}₹${Math.abs(h.dayChangePnl || 0).toFixed(2)}</td>
                             <td class="${(h.pnl || 0) >= 0 ? 'positive' : 'negative'}" data-live-pnl>${(h.pnl || 0) >= 0 ? '+' : '-'}₹${Math.abs(h.pnl || 0).toFixed(2)} (${(h.pnlPercent || 0) >= 0 ? '+' : ''}${(h.pnlPercent || 0).toFixed(2)}%)</td>
-                            <td><div class="portfolio-decision-group" role="group" aria-label="Set decision for ${h.symbol.replace('.NS', '')}">
-                                ${['BUY', 'SELL', 'HOLD'].map(decision => `<button type="button" class="portfolio-decision-btn decision-${decision.toLowerCase()} ${h.decision === decision ? 'selected' : ''}" aria-pressed="${h.decision === decision}" onclick="setPortfolioDecision('${h.symbol}', '${decision}')">${decision}</button>`).join('')}
-                            </div></td>
+                            <td><span class="portfolio-recommendation recommendation-${(h.recommendation || 'pending').toLowerCase()}" title="${(h.recommendationSignals || []).map(s => `${s.indicator}: ${s.type} (${s.strength})`).join('&#10;') || 'Waiting for the next daily portfolio scan'}">${h.recommendation || 'PENDING'}</span>${h.recommendationScannedAt ? `<small class="portfolio-recommendation-time">${new Date(h.recommendationScannedAt).toLocaleDateString('en-IN')}</small>` : ''}</td>
                             <td>
                                 <button class="btn-secondary" style="padding:4px 10px; font-size:12px;" onclick="selectStock('${h.symbol}'); showTab('chart')" title="Open live chart">Chart</button>
                                 <button class="btn-secondary" style="padding:4px 10px; font-size:12px;" onclick="toggleSellRow('${h.symbol}', ${h.quantity}, ${h.currentPrice || h.buyPrice})">Sell</button>
@@ -2364,28 +2375,6 @@ async function loadPortfolio() {
     applyLiveDomQuotes();
     loadRealizedPnl();
     loadDividendData();
-}
-
-async function setPortfolioDecision(symbol, decision) {
-    const res = await api(`/api/portfolio/${encodeURIComponent(symbol)}/decision`, {
-        method: 'POST',
-        body: JSON.stringify({ decision })
-    });
-    const error = res.error || res.detail;
-    if (error) {
-        showToast(error, 'negative');
-        return;
-    }
-
-    const holding = portfolioHoldingsCache.find(item => item.symbol === symbol);
-    if (holding) holding.decision = decision;
-    const row = document.querySelector(`#portfolioTable tr[data-live-symbol="${CSS.escape(symbol)}"]`);
-    row?.querySelectorAll('.portfolio-decision-btn').forEach(button => {
-        const selected = button.textContent.trim() === decision;
-        button.classList.toggle('selected', selected);
-        button.setAttribute('aria-pressed', String(selected));
-    });
-    showToast(`${displaySymbol(symbol)} marked ${decision}`, 'success');
 }
 
 // ===== ALLOCATION DONUT (per-stock weights) =====

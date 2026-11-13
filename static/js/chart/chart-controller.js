@@ -73,6 +73,23 @@ class ChartController {
                 vertTouchDrag: true
             }
         });
+        console.log('[ChartController.init] Chart created:', !!this.chart);
+
+        this.candleSeries = this.chart.addCandlestickSeries({
+            upColor: '#10b981',
+            downColor: '#ef4444',
+            borderDownColor: '#ef4444',
+            borderUpColor: '#10b981',
+            wickDownColor: '#ef4444',
+            wickUpColor: '#10b981',
+            lastValueVisible: true,
+            priceLineVisible: false,
+            priceFormat: {
+                type: 'price',
+                precision: 2,
+                minMove: 0.01
+            }
+        });
         console.log('[ChartController.init] Candle series created:', !!this.candleSeries);
 
         this.volumeSeries = this.chart.addHistogramSeries({

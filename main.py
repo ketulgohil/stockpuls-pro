@@ -23,6 +23,7 @@ from core import upstox_data
 from core.data_fetcher import ALL_SYMBOLS, get_stock_data, get_live_price
 from core.upstox_data import ensure_instruments
 from core.trader_core import IST
+from core.portfolio_recommendations import daily_portfolio_recommendation_loop
 
 app = FastAPI(
     title="Indian Stock Market Analysis Platform",
@@ -34,6 +35,7 @@ app = FastAPI(
 async def startup_event():
     print("🚀 StockPulse Pro started successfully!")
     sentinel_engine.start()
+    app.state.portfolio_recommendation_task = asyncio.create_task(daily_portfolio_recommendation_loop())
     if upstox_engine.client.is_authenticated:
         upstox_engine.start()
         print(f"📡 Upstox live engine started ({len(upstox_engine.symbols)} symbols)")
@@ -44,6 +46,9 @@ async def startup_event():
 async def shutdown_event():
     sentinel_engine.stop()
     upstox_engine.stop()
+    task = getattr(app.state, "portfolio_recommendation_task", None)
+    if task:
+        task.cancel()
 
 app.include_router(stocks.router)
 app.include_router(screener.router)

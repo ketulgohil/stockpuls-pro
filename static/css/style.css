@@ -721,35 +721,20 @@ tr:hover td {
     flex-wrap: wrap;
 }
 
-.portfolio-decision-group {
-    display: inline-flex;
-    gap: 3px;
-    padding: 3px;
-    border: 1px solid var(--border);
-    border-radius: 7px;
+.portfolio-recommendation {
+    display: inline-block;
+    border-radius: 12px;
+    padding: 4px 8px;
     background: var(--bg-primary);
-}
-
-.portfolio-decision-btn {
-    border: 0;
-    border-radius: 4px;
-    padding: 5px 7px;
-    background: transparent;
-    color: var(--text-secondary);
+    border: 1px solid var(--border);
     font-size: 10px;
     font-weight: 700;
-    cursor: pointer;
 }
-
-.portfolio-decision-btn:hover,
-.portfolio-decision-btn:focus-visible {
-    background: var(--bg-hover);
-    outline: 1px solid var(--accent);
-}
-
-.portfolio-decision-btn.decision-buy.selected { background: rgba(16,185,129,.18); color: #10b981; }
-.portfolio-decision-btn.decision-sell.selected { background: rgba(239,68,68,.18); color: #ef4444; }
-.portfolio-decision-btn.decision-hold.selected { background: rgba(245,158,11,.18); color: #f59e0b; }
+.portfolio-recommendation.recommendation-buy { color: #10b981; border-color: rgba(16,185,129,.35); }
+.portfolio-recommendation.recommendation-sell { color: #ef4444; border-color: rgba(239,68,68,.35); }
+.portfolio-recommendation.recommendation-hold,
+.portfolio-recommendation.recommendation-pending { color: #f59e0b; border-color: rgba(245,158,11,.35); }
+.portfolio-recommendation-time { display: block; margin-top: 3px; color: var(--text-secondary); font-size: 10px; }
 
 .portfolio-form input,
 .watchlist-form input,

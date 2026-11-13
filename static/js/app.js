@@ -66,19 +66,42 @@ async function api(url, options = {}) {
     if (apiKey) {
         headers['X-API-Key'] = apiKey;
     }
+    
+    // Add timeout to prevent indefinite hanging (Issue #6)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+    
     try {
         const res = await fetch(url, {
             headers,
-            ...options
+            ...options,
+            signal: controller.signal
         });
+        clearTimeout(timeoutId);
+        
         // Handle authentication required
         if (res.status === 401) {
             const data = await res.json().catch(() => ({}));
             showAuthRequired(data.detail || 'Authentication required');
             return { error: 'auth_required', status: 401, detail: data.detail };
         }
+        
+        // Check HTTP status for non-2xx responses
+        if (!res.ok) {
+            const errorData = await res.json().catch(() => ({}));
+            return { 
+                error: errorData.detail || `HTTP ${res.status}: ${res.statusText}`, 
+                status: res.status 
+            };
+        }
+        
         return await res.json();
     } catch (err) {
+        clearTimeout(timeoutId);
+        if (err.name === 'AbortError') {
+            console.error('API Timeout:', url);
+            return { error: 'Request timeout', status: 408 };
+        }
         console.error('API Error:', err);
         return { error: err.message };
     }
@@ -209,28 +232,28 @@ function showTab(tabName) {
 
     // Load data for specific tabs
     switch(tabName) {
-        case 'dashboard': loadChart(); loadDashboardGainersLosers(); break;
-        case 'market': loadMarket(); break;
-        case 'signals': loadSignals(); break;
+        case 'dashboard': stopSectorRefresh(); loadChart(); loadDashboardGainersLosers(); break;
+        case 'market': stopSectorRefresh(); loadMarket(); break;
+        case 'signals': stopSectorRefresh(); loadSignals(); break;
         case 'sector': loadSectors(); break;
-        case 'news': loadNews(); break;
-        case 'ai': loadAiTab(); break;
+        case 'news': stopSectorRefresh(); loadNews(); break;
+        case 'ai': stopSectorRefresh(); loadAiTab(); break;
         case 'sentinel':
-        case 'sentinel-tab': loadSentinelFeed(); loadSentinelDigests(); break;
-        case 'heatmap': loadHeatmap(); break;
-        case 'global': loadGlobalMarkets(); break;
-        case 'ipo': loadIPOs(); loadMarketStatus(); break;
-        case 'calculators': break;
-        case 'features': loadFeaturesTab(); break;
-        case 'gold': loadGoldPrices(); break;
-        case 'mutualfunds': loadMutualFunds(); break;
-        case 'currency': loadQuickRates(); break;
-        case 'results': loadUpcomingResults(); break;
-        case 'invest': loadSuperinvestors(); break;
-        case 'portfolio': loadPortfolio(); loadPortfolioAnalytics(); loadBenchmark(); break;
-        case 'watchlist': loadWatchlist(); break;
-        case 'analysis': loadAlerts(); break;
-        case 'traderdesk': initTraderDesk(); break;
+        case 'sentinel-tab': stopSectorRefresh(); loadSentinelFeed(); loadSentinelDigests(); break;
+        case 'heatmap': stopSectorRefresh(); loadHeatmap(); break;
+        
+        case 'ipo': stopSectorRefresh(); loadIPOs(); loadMarketStatus(); break;
+        case 'calculators': stopSectorRefresh(); break;
+        case 'features': stopSectorRefresh(); loadFeaturesTab(); break;
+        case 'gold': stopSectorRefresh(); loadGoldPrices(); break;
+        case 'mutualfunds': stopSectorRefresh(); loadMutualFunds(); break;
+        case 'currency': stopSectorRefresh(); loadQuickRates(); break;
+        case 'results': stopSectorRefresh(); loadUpcomingResults(); break;
+        case 'invest': stopSectorRefresh(); loadSuperinvestors(); break;
+        case 'portfolio': stopSectorRefresh(); loadPortfolio(); loadPortfolioAnalytics(); loadBenchmark(); break;
+        case 'watchlist': stopSectorRefresh(); loadWatchlist(); break;
+        case 'analysis': stopSectorRefresh(); loadAlerts(); break;
+        case 'traderdesk': stopSectorRefresh(); initTraderDesk(); break;
     }
 }
 
@@ -339,7 +362,7 @@ async function loadChart() {
     // Legacy chart container is gone; the Live Chart tab uses loadChartChart().
     if (!document.getElementById('chartContainer')) {
         if (typeof loadChartChart === 'function') {
-            return loadChartChart();
+            return loadChartChart(currentSymbol);
         }
         return;
     }
@@ -458,7 +481,8 @@ function changeTimeframe(tf, btn) {
 let chartChart = null;
 let candleSeriesChart = null;
 let volumeSeriesChart = null;
-let chartLoadingLock = false;
+// Request ID system: replaces chartLoadingLock for latest-request-wins behavior
+let chartRequestId = 0;
 let emaSeriesChart = {};
 let vwapSeriesChart = {};
 let oscChartChart = null;
@@ -474,24 +498,39 @@ let drawingStartPointChart = null;
 let drawingLinesChart = [];
 let chartWsSymbols = new Set();
 
-// Initialize dedicated chart
-function initChartChart() {
-    const container = document.getElementById('chartContainerChart');
-    if (!container) return;
+// Chart initialization promise: ensures init completes before any load
+let chartInitPromise = null;
 
-    // Use the new unified ChartController
-    window.chartController = new ChartController('chartContainerChart');
-    window.chartController.init();
+// Initialize dedicated chart (idempotent, returns promise)
+async function initChartChart() {
+    // Return existing promise if already initializing or initialized
+    if (chartInitPromise) return chartInitPromise;
+    if (chartChart) return Promise.resolve();
 
-    // Expose chart and series for backward compatibility
-    chartChart = window.chartController.chart;
-    candleSeriesChart = window.chartController.candleSeries;
-    volumeSeriesChart = window.chartController.volumeSeries;
-    emaSeriesChart = window.chartController.emaSeries;
-    vwapSeriesChart = window.chartController.vwapSeries;
+    chartInitPromise = (async () => {
+        const container = document.getElementById('chartContainerChart');
+        if (!container) throw new Error('Chart container not found');
 
-    // Initialize drawing event handlers
-    initChartDrawingEvents();
+        // Use the new unified ChartController
+        window.chartController = new ChartController('chartContainerChart');
+        window.chartController.init();
+
+        // Expose chart and series for backward compatibility
+        chartChart = window.chartController.chart;
+        candleSeriesChart = window.chartController.candleSeries;
+        volumeSeriesChart = window.chartController.volumeSeries;
+        emaSeriesChart = window.chartController.emaSeries;
+        vwapSeriesChart = window.chartController.vwapSeries;
+
+        // Initialize drawing event handlers
+        initChartDrawingEvents();
+    })();
+
+    try {
+        await chartInitPromise;
+    } finally {
+        chartInitPromise = null;
+    }
 }
 
 // Overlay for loading failures. Kept separate from the chart canvas so a
@@ -531,15 +570,9 @@ const TIMEFRAME_CONFIG = {
     '1h':   { period: '1d', interval: '1h' },   // 1 day of 1-hour candles
 };
 
-async function loadChartChart() {
-    console.log('[loadChartChart] START', { chartLoadingLock });
-    // Prevent concurrent chart loads
-    if (chartLoadingLock) {
-        console.log('[loadChartChart] BLOCKED - lock held');
-        return;
-    }
-    chartLoadingLock = true;
-    console.log('[loadChartChart] LOCK acquired');
+async function loadChartChart(symbolArg) {
+    const thisRequestId = ++chartRequestId;
+    console.log('[loadChartChart] START', { requestId: thisRequestId, symbolArg });
 
     const loadBtn = document.querySelector('button[onclick="loadChartSymbolFromInput()"]');
     if (loadBtn) {
@@ -547,11 +580,15 @@ async function loadChartChart() {
         loadBtn.textContent = 'Loading…';
     }
 
-    const rawSymbol = document.getElementById('chartSymbolInput')?.value?.trim()?.toUpperCase();
+    // Use passed symbol, or fall back to input value
+    let rawSymbol = symbolArg;
+    if (!rawSymbol) {
+        rawSymbol = document.getElementById('chartSymbolInput')?.value?.trim()?.toUpperCase();
+    }
     console.log('[loadChartChart] rawSymbol:', rawSymbol);
     if (!rawSymbol) {
-        console.log('[loadChartChart] EMPTY symbol, releasing lock');
-        chartLoadingLock = false;
+        console.log('[loadChartChart] EMPTY symbol');
+        if (loadBtn) { loadBtn.disabled = false; loadBtn.textContent = 'Load'; }
         return;
     }
 
@@ -593,31 +630,56 @@ async function loadChartChart() {
     console.log('[loadChartChart] timeframe:', tf, 'config:', tfConfig);
 
     try {
+        // Ensure chart is initialized before loading data
+        await initChartChart();
+
+        // Latest-request-wins: if a newer request started, abort this one
+        if (thisRequestId !== chartRequestId) {
+            console.log('[loadChartChart] ABORTED - superseded by request', chartRequestId);
+            return;
+        }
+
         const url = `/api/stocks/${symbol}/history?period=${tfConfig.period}&interval=${tfConfig.interval}`;
         console.log('[loadChartChart] fetching:', url);
         const data = await api(url);
         console.log('[loadChartChart] response:', data);
 
+        // Check again after fetch
+        if (thisRequestId !== chartRequestId) {
+            console.log('[loadChartChart] ABORTED after fetch - superseded');
+            return;
+        }
+
         if (data.error || !data.data || data.data.length === 0) {
             if (loadingEl) loadingEl.style.display = 'none';
             const msg = data.error ? data.error : 'No data available for ' + symbol;
             let suggestion = '';
-            // If symbol not found, suggest search
             if (data.error && data.error.includes('not found')) {
                 suggestion = '<p class="placeholder" style="font-size:11px; margin-top:4px;">Try searching for the stock in the search box or try a different symbol.</p>';
             }
-            showChartOverlayChart('<p class="placeholder">' + msg + '</p>' + suggestion);
+            // Keep previous chart visible if this was a symbol change that failed
+            showChartOverlayChart('<p class="placeholder">' + msg + '</p>' + suggestion + '<br><button class="btn-secondary" onclick="loadChartChart(currentSymbol)" style="margin-top:8px;">Retry</button>');
             return;
         }
 
-        const candles = data.data.map(d => ({
-            time: d.date,
-            open: d.open,
-            high: d.high,
-            low: d.low,
-            close: d.close,
-            volume: d.volume || 0
-        }));
+        // Validate candle data before rendering (Phase 2)
+        const rawCandles = data.data;
+        const candles = [];
+        for (const d of rawCandles) {
+            const o = Number(d.open), h = Number(d.high), l = Number(d.low), c = Number(d.close), v = Number(d.volume || 0);
+            const t = d.date;
+            if (!Number.isFinite(o) || !Number.isFinite(h) || !Number.isFinite(l) || !Number.isFinite(c)) continue;
+            if (l > Math.min(o, c) || h < Math.max(o, c)) continue; // low ≤ open/close ≤ high
+            if (v < 0) continue;
+            candles.push({ time: t, open: o, high: h, low: l, close: c, volume: v });
+        }
+        if (candles.length === 0) {
+            if (loadingEl) loadingEl.style.display = 'none';
+            showChartOverlayChart('<p class="placeholder">Invalid candle data for ' + symbol + '</p><br><button class="btn-secondary" onclick="loadChartChart(currentSymbol)" style="margin-top:8px;">Retry</button>');
+            return;
+        }
+        // Sort by time ascending
+        candles.sort((a, b) => new Date(a.time) - new Date(b.time));
 
         // Fetch stock info and price using clean un-namespaced ticker if needed
         try {
@@ -649,6 +711,14 @@ async function loadChartChart() {
         }
         clearChartOverlayChart();
 
+        // Force chart resize to ensure correct dimensions
+        setTimeout(() => {
+            if (chartChart) chartChart.resize();
+            if (window.chartController && window.chartController.chart) {
+                window.chartController.chart.resize();
+            }
+        }, 0);
+
         // Draw ORB levels for intraday
         const isIntraday = ['5m', '15m', '30m', '1h'].includes(tf);
         if (isIntraday) {
@@ -661,14 +731,20 @@ async function loadChartChart() {
             stopBarTimerChart();
         }
 
-        // Indicators
+        // Indicators - clear stale overlays first (Phase 2/3)
+        if (window.chartController) {
+            window.chartController.clearStaleOverlays?.(symbol);
+        }
         updateEmaSeriesChart(candles);
         if (isIntraday) updateVwapSeriesChart(candles);
         else updatePivotLinesChart(candles);
         updatePatternMarkersChart(candles);
 
-        // Subscribe to WebSocket for live updates
+        // Subscribe to WebSocket for live updates (Phase 4)
         subscribeToChartSymbol(symbol);
+
+        // Update data freshness timestamp (Phase 4)
+        updateChartFreshness(new Date());
 
         // Hide loading state
         if (loadingEl) loadingEl.style.display = 'none';
@@ -676,15 +752,12 @@ async function loadChartChart() {
     } catch (err) {
         console.error('[loadChartChart] ERROR:', err);
         if (loadingEl) loadingEl.style.display = 'none';
-        showChartOverlayChart('<p class="placeholder">Error loading chart: ' + err.message + '</p>');
+        // Safe error display - don't interpolate untrusted text
+        const safeMsg = String(err.message || err).replace(/[<>]/g, '');
+        showChartOverlayChart('<p class="placeholder">Error loading chart: ' + safeMsg + '</p><br><button class="btn-secondary" onclick="loadChartChart(currentSymbol)" style="margin-top:8px;">Retry</button>');
     } finally {
-        console.log('[loadChartChart] FINALLY - releasing lock');
-        chartLoadingLock = false;
-        const loadBtn = document.querySelector('button[onclick="loadChartSymbolFromInput()"]');
-        if (loadBtn) {
-            loadBtn.disabled = false;
-            loadBtn.textContent = 'Load';
-        }
+        console.log('[loadChartChart] FINALLY', { requestId: thisRequestId, currentRequestId: chartRequestId });
+        if (loadBtn) { loadBtn.disabled = false; loadBtn.textContent = 'Load'; }
     }
 }
 
@@ -700,7 +773,7 @@ function setChartTimeframe(tf, btn) {
         window.chartController.saveVisibleRange();
     }
 
-    loadChartChart();
+    loadChartChart(currentSymbol);
 
     // Restore visible range after loading (with a small delay to let data load)
     setTimeout(() => {
@@ -708,6 +781,12 @@ function setChartTimeframe(tf, btn) {
             window.chartController.restoreVisibleRange();
         }
     }, 100);
+
+    // Save timeframe to chart state (Phase 5)
+    if (window.ChartState) {
+        window.ChartState.resolution = tf;
+        window.ChartState.save();
+    }
 }
 
 function drawStrategyLinesChart(levels) {
@@ -919,7 +998,13 @@ function updateChartLivePrice(symbol, price, change, changePercent) {
     const changeNum = Number(change) || 0;
     const changePctNum = Number(changePercent) || 0;
 
-    setChartWsStatus('live');
+    // Check market hours (Phase 4)
+    const marketStatus = getMarketStatus();
+    if (!marketStatus.isOpen) {
+        setChartWsStatus('offline');
+    } else {
+        setChartWsStatus('live');
+    }
 
     // Update the LTP ticker in the chart header
     const priceEl = document.getElementById('chartPrice');
@@ -1327,22 +1412,31 @@ function renderOscillatorData(candles) {
 }
 
 // Dashboard Gainers/Losers
+// Track if dashboard data is loading to prevent duplicate requests
+let dashboardLoading = false;
+
 async function loadDashboardGainersLosers() {
+    if (dashboardLoading) {
+        console.log('[Dashboard] Already loading, skipping duplicate request');
+        return;
+    }
+    dashboardLoading = true;
+    
     try {
-        const gainersData = await api('/api/market/top-gainers');
-        const losersData = await api('/api/market/top-losers');
+        // Single combined request for both gainers and losers
+        const data = await api('/api/market/top-movers');
         
         const gainersContainer = document.getElementById('topGainers');
         const losersContainer = document.getElementById('topLosers');
         
         if (!gainersContainer || !losersContainer) return;
         
-        if (gainersData.gainers) {
+        if (data.gainers) {
             gainersContainer.innerHTML = `
                 <table>
                     <thead><tr><th>Stock</th><th>Price</th><th>Change</th></tr></thead>
                     <tbody>
-                        ${gainersData.gainers.map(s => `
+                        ${data.gainers.map(s => `
                             <tr data-live-symbol="${s.symbol}" onclick="selectStock('${s.symbol}')" style="cursor:pointer">
                                 <td><strong>${s.name}</strong></td>
                                 <td data-live-price>${fmtPrice(s.price)}</td>
@@ -1354,12 +1448,12 @@ async function loadDashboardGainersLosers() {
             `;
         }
         
-        if (losersData.losers) {
+        if (data.losers) {
             losersContainer.innerHTML = `
                 <table>
                     <thead><tr><th>Stock</th><th>Price</th><th>Change</th></tr></thead>
                     <tbody>
-                        ${losersData.losers.map(s => `
+                        ${data.losers.map(s => `
                             <tr data-live-symbol="${s.symbol}" onclick="selectStock('${s.symbol}')" style="cursor:pointer">
                                 <td><strong>${s.name}</strong></td>
                                 <td data-live-price>${fmtPrice(s.price)}</td>
@@ -1370,19 +1464,27 @@ async function loadDashboardGainersLosers() {
                 </table>
             `;
         }
-
-        refreshLiveSubscriptions();
+        
+        // Apply live quotes to the newly rendered elements
         applyLiveDomQuotes();
     } catch (err) {
-        console.error('Dashboard gainers/losers error:', err);
+        console.error('[Dashboard] Failed to load gainers/losers:', err);
+    } finally {
+        dashboardLoading = false;
     }
 }
+async function selectStock(symbol) {
+    await openChart(symbol);
+}
 
-// Stock Selection - opens the dedicated chart view
-function selectStock(symbol) {
-    console.log('[selectStock] called with:', symbol);
+// Open any stock directly in the chart view
+function openStockChart(symbol) {
+    selectStock(symbol);
+}
+
+async function openChart(symbol) {
+    if (!symbol) return;
     const sym = normalizeSymbol(symbol);
-    currentSymbol = sym;
     const disp = displaySymbol(sym);
 
     // Update all stock name / badge elements across UI
@@ -1392,32 +1494,32 @@ function selectStock(symbol) {
 
     localStorage.setItem('lastStock', sym);
 
-    // Subscribe to WebSocket for live price updates on this symbol
-    subscribeToChartSymbol(sym);
-
     // Set the chart symbol input
     const chartInput = document.getElementById('chartSymbolInput');
     if (chartInput) chartInput.value = sym;
+
+    // Subscribe to WebSocket for live price updates on this symbol
+    subscribeToChartSymbol(sym);
 
     // Show loading price
     const priceEl = document.getElementById('chartPrice');
     if (priceEl) priceEl.textContent = 'Loading...';
 
-    console.log('[selectStock] calling showTab(chart) and loadChartChart');
+    console.log('[openChart] opening chart for:', sym);
     showTab('chart');
-    loadChartChart();
-}
-
-// Open any stock directly in the chart view
-function openStockChart(symbol) {
-    selectStock(symbol);
-}
-
-// ===== CHART WATCHLIST =====
-
-// Load watchlist into chart sidebar
-async function refreshChartWatchlist() {
-    loadChartWatchlist();
+    
+    // Wait for tab to be active, then load chart
+    // The showTab wrapper now defers initChartChart via requestAnimationFrame
+    // We wait a frame for the tab to render, then ensure init completes
+    await new Promise(r => requestAnimationFrame(r));
+    await initChartChart();
+    await loadChartChart(sym);
+    
+    // Save chart state (Phase 5)
+    if (window.ChartState) {
+        window.ChartState.symbol = sym;
+        window.ChartState.save();
+    }
 }
 
 async function loadChartWatchlist() {
@@ -1549,14 +1651,17 @@ function addSymbolToChartWatchlist(symbol) {
 
 // Load chart from symbol input (Enter key or button)
 function loadChartSymbolFromInput() {
-    loadChartChart();
+    const raw = document.getElementById('chartSymbolInput')?.value?.trim();
+    if (!raw) return;
+    openChart(raw);
 }
 
 // Enter key on chart symbol input
 document.getElementById('chartSymbolInput')?.addEventListener('keydown', async (e) => {
     if (e.key === 'Enter') {
         e.preventDefault();
-        loadChartChart();
+        const raw = document.getElementById('chartSymbolInput')?.value?.trim();
+        if (raw) openChart(raw);
     }
 });
 
@@ -1596,7 +1701,7 @@ function selectStockFromSearch(symbol) {
     if (input) input.value = symbol;
     document.getElementById('chartSearchResults').innerHTML = '';
     document.getElementById('chartSearchResults').classList.remove('active');
-    loadChartChart();
+    openChart(symbol);
 }
 
 // Enter key on chart watchlist search
@@ -1614,13 +1719,28 @@ window.showTab = function(tabName) {
     _originalShowTabChart2(tabName);
     if (tabName === 'chart') {
         console.log('[showTab] chart tab activated');
-        if (!chartChart) {
-            console.log('[showTab] initializing chartChart');
-            initChartChart();
-        }
-        console.log('[showTab] calling loadChartChart');
-        loadChartChart();
-        loadChartWatchlist();
+        // Defer until the tab is fully visible so the container has dimensions
+        requestAnimationFrame(() => {
+            if (!chartChart) {
+                console.log('[showTab] initializing chartChart');
+                initChartChart();
+                // Load saved chart workspace (Phase 5)
+                if (window.ChartState) {
+                    window.ChartState.load();
+                    // Restore symbol if no explicit symbol was passed
+                    if (!currentSymbol || currentSymbol === 'RELIANCE.NS') {
+                        const savedSymbol = window.ChartState.symbol || 'RELIANCE.NS';
+                        if (savedSymbol) currentSymbol = savedSymbol;
+                    }
+                    const savedTf = window.ChartState.resolution || '1d';
+                    if (savedTf) {
+                        const tfBtn = document.querySelector(`#chart .tf-btn[data-tf="${savedTf}"]`);
+                        if (tfBtn) tfBtn.click();
+                    }
+                }
+            }
+            loadChartWatchlist();
+        });
     }
     if (tabName === 'upstox-intraday') {
         initUpstoxDesk();
@@ -1771,22 +1891,37 @@ async function loadSignals() {
 }
 
 // Sectors
+let sectorRefreshTimer = null;
+
 async function loadSectors() {
     const data = await api('/api/sector');
     const container = document.getElementById('sectorContent');
     
-    if (data.sectors) {
-        container.innerHTML = data.sectors.map(s => `
+    if (Array.isArray(data) && data.length) {
+        container.innerHTML = data.map(s => `
             <div class="sector-card">
                 <h4>${s.name}</h4>
                 <div class="sector-change ${s.change >= 0 ? 'positive' : 'negative'}">
                     ${fmtChg(s.change)}%
                 </div>
                 <div style="font-size:12px; color:var(--text-secondary); margin-top:8px;">
-                    ${s.stocks?.length || 0} stocks
+                    ${s.stockCount || 0} stocks
                 </div>
             </div>
         `).join('');
+    }
+
+    // Start live refresh if not already running
+    if (!sectorRefreshTimer) {
+        sectorRefreshTimer = setInterval(loadSectors, 5000);
+    }
+}
+
+// Stop the sector live refresh when leaving the tab
+function stopSectorRefresh() {
+    if (sectorRefreshTimer) {
+        clearInterval(sectorRefreshTimer);
+        sectorRefreshTimer = null;
     }
 }
 
@@ -5343,25 +5478,36 @@ const WS_MAX_SYMBOLS = 200;
 // Latest quote per symbol, shared by every page/table.
 const liveQuoteCache = new Map();
 
+// Add timestamp to cache entries for stale detection (Phase 4)
+const liveQuoteCacheTS = new Map();
+
 // Symbols rendered on the current DOM (market cards, watchlist, tables, ...).
 let liveDomSymbols = new Set();
 let lastWsSubscriptionKey = '';
 let lastWsMessageAt = 0;
 
-function getLiveQuote(symbol) {
-    return liveQuoteCache.get(normalizeSymbol(symbol));
+// Market hours: NSE 09:15-15:30 IST
+function getMarketStatus() {
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000; // IST is UTC+5:30
+    const istNow = new Date(now.getTime() + istOffset);
+    const day = istNow.getUTCDay(); // 0=Sun, 6=Sat
+    const hour = istNow.getUTCHours();
+    const minute = istNow.getUTCMinutes();
+    const isWeekend = day === 0 || day === 6;
+    const minsSinceMidnight = hour * 60 + minute;
+    const marketOpen = 9 * 60 + 15; // 09:15
+    const marketClose = 15 * 60 + 30; // 15:30
+    const isOpen = !isWeekend && minsSinceMidnight >= marketOpen && minsSinceMidnight <= marketClose;
+    return { isOpen, isWeekend, isPreMarket: !isWeekend && minsSinceMidnight < marketOpen, isPostMarket: !isWeekend && minsSinceMidnight > marketClose };
 }
 
-function cacheLiveQuotes(prices) {
-    Object.entries(prices || {}).forEach(([symbol, quote]) => {
-        const price = Number(quote && quote.price);
-        if (!Number.isFinite(price) || price <= 0) return;
-        liveQuoteCache.set(normalizeSymbol(symbol), {
-            price: price,
-            change: Number(quote.change) || 0,
-            changePercent: Number(quote.changePercent) || 0
-        });
-    });
+// Update chart freshness timestamp display (Phase 4)
+function updateChartFreshness(date) {
+    const el = document.getElementById('chartFreshness');
+    if (el) {
+        el.textContent = 'Data: ' + date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' IST';
+    }
 }
 
 function collectLiveDomSymbols() {
@@ -5443,8 +5589,14 @@ function connectWebSocket() {
 
                 // Also update chart if it's showing this symbol
                 Object.entries(data.prices).forEach(([symbol, q]) => {
+                    // Phase 4: Only update chart if this is the currently subscribed symbol
+                    // and the quote is fresh (within last 2 seconds to handle brief delays)
                     if (chartWsSymbols.has(symbol)) {
-                        updateChartLivePrice(symbol, q.price, q.change, q.changePercent);
+                        const quoteTS = getLiveQuoteTimestamp(symbol);
+                        const age = Date.now() - quoteTS;
+                        if (age < 2000) { // Only apply quotes less than 2s old
+                            updateChartLivePrice(symbol, q.price, q.change, q.changePercent);
+                        }
                     }
                 });
 
@@ -6593,7 +6745,8 @@ function initApp() {
         loadChart();
     }
 
-    loadDashboardGainersLosers();
+    // Dashboard gainers/losers will be loaded when dashboard tab is shown
+    // updateMarketStatus and updateMarketPulse are called by showTab for their respective tabs
     updateMarketStatus();
     updateMarketPulse();
     updateClock();

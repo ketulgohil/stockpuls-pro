@@ -106,7 +106,7 @@ const ChartCrosshairLegend = {
     subscribeToCrosshair() {
         if (!this.chart) return;
 
-        // Subscribe to crosshair move event
+        // Subscribe to crosshair move event (on chart, not series)
         this.chart.subscribeCrosshairMove((param) => {
             if (!param || !param.point) {
                 this.hideLegend();
@@ -115,11 +115,7 @@ const ChartCrosshairLegend = {
             }
 
             this.handleCrosshairMove(param);
-        });
-
-        // Also subscribe to crosshair hover for immediate feedback
-        this.candleSeries.subscribeCrosshairMove((param) => {
-            if (!param || !param.point) return;
+            // Also update price marker from the same event
             this.updatePriceMarker(param.point);
         });
     },

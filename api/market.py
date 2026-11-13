@@ -48,14 +48,26 @@ def _mover_row(quote: dict) -> dict:
     }
 
 
+@router.get("/top-movers")
+def top_movers(limit: int = Query(10, ge=1, le=50)):
+    """Combined endpoint for top gainers and losers - single quote fetch."""
+    movers = upstox_data.get_top_movers(ALL_SYMBOLS, limit=limit)
+    return {
+        "gainers": [_mover_row(q) for q in movers.get("gainers", [])],
+        "losers": [_mover_row(q) for q in movers.get("losers", [])]
+    }
+
+
 @router.get("/top-gainers")
 def top_gainers():
+    """Legacy endpoint - redirects to combined."""
     movers = upstox_data.get_top_movers(ALL_SYMBOLS, limit=10)
     return {"gainers": [_mover_row(q) for q in movers.get("gainers", [])]}
 
 
 @router.get("/top-losers")
 def top_losers():
+    """Legacy endpoint - redirects to combined."""
     movers = upstox_data.get_top_movers(ALL_SYMBOLS, limit=10)
     return {"losers": [_mover_row(q) for q in movers.get("losers", [])]}
 

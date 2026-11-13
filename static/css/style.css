@@ -4722,6 +4722,17 @@ body { --chart-bg: var(--bg-card); }
     font-size: 11px;
 }
 
+.chart-freshness {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    margin-left: 8px;
+    padding: 2px 8px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
 .chart-price-ticker-box {
     display: flex;
     flex-direction: column;

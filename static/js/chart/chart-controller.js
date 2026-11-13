@@ -90,6 +90,13 @@ class ChartController {
         });
         this.resizeObserver.observe(this.container);
 
+        // Force initial resize after a brief delay to ensure container has dimensions
+        setTimeout(() => {
+            if (this.chart && this.container) {
+                this.chart.resize(this.container.clientWidth, this.container.clientHeight);
+            }
+        }, 50);
+
         // Create zoom control buttons
         this.createZoomControls();
 

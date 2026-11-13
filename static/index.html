@@ -4,44 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StockPulse Pro | Indian Market Analytics</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=4.7">
+    <link rel="stylesheet" href="/static/css/style.css?v=4.8">
     <link rel="manifest" href="/static/manifest.json">
     <meta name="theme-color" content="#0a0a0f">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="/static/js/indicators.js?v=1.1"></script>
-    <script>
-        // The app no longer uses a service worker. Remove any previously
-        // installed cache-first worker so an old cached index.html/app.js can
-        // never mask live-price updates again.
-        if ('serviceWorker' in navigator) {
-            var hadServiceWorker = !!navigator.serviceWorker.controller;
-            var cleanup = Promise.all([
-                navigator.serviceWorker.getRegistrations().then(function (registrations) {
-                    return Promise.all(registrations.map(function (registration) {
-                        return registration.unregister();
-                    }));
-                }),
-                (window.caches && caches.keys)
-                    ? caches.keys().then(function (keys) {
-                        return Promise.all(keys.map(function (key) {
-                            return caches.delete(key);
-                        }));
-                    })
-                    : Promise.resolve()
-            ]).catch(function () {});
-            // Reload once (after the caches are actually gone) if this page was
-            // controlled by the stale worker.
-            var alreadyReloaded = false;
-            try { alreadyReloaded = !!sessionStorage.getItem('sw_stale_reload'); } catch (e) {}
-            if (hadServiceWorker && !alreadyReloaded) {
-                try { sessionStorage.setItem('sw_stale_reload', '1'); } catch (e) {}
-                cleanup.then(function () { window.location.reload(); });
-            }
-        } else {
-            try { sessionStorage.removeItem('sw_stale_reload'); } catch (e) {}
-        }
-    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 </head>
 <body>
     <div class="app-container">
@@ -119,10 +85,6 @@
                 <a class="nav-item" data-tab="heatmap" onclick="showTab('heatmap')">
                     <span class="nav-icon">▦</span>
                     <span>Heatmap</span>
-                </a>
-                <a class="nav-item" data-tab="global" onclick="showTab('global')">
-                    <span class="nav-icon">🌐</span>
-                    <span>Global</span>
                 </a>
                 <a class="nav-item" data-tab="ipo" onclick="showTab('ipo')">
                     <span class="nav-icon">★</span>
@@ -750,6 +712,7 @@
                                                 <span class="ws-dot" id="chartWsDot" aria-hidden="true"></span>
                                                 <span id="chartWsStatus" class="ws-status-text">Live Feed</span>
                                             </span>
+                                            <span id="chartFreshness" class="chart-freshness" aria-live="polite"></span>
                                         </div>
                                     </div>
                                 </div>
@@ -910,26 +873,6 @@
                         </div>
                         <div id="heatmapContainer">
                             <p class="placeholder">Click "Load Heatmap" to visualize market performance</p>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- ========== GLOBAL MARKETS TAB ========== -->
-                <div id="global" class="tab-content">
-                    <div class="page-header">
-                        <h1>Global Markets</h1>
-                        <p>World indices, currencies, and commodities</p>
-                    </div>
-                    <div class="notice notice-unavailable">
-                        ⚠️ <strong>Temporarily unavailable:</strong> Global market data (world indices, currencies, commodities) is not supplied by the current data provider (Upstox). Indian market data remains fully available.
-                    </div>
-                    <div class="card">
-                        <div class="card-header">
-                            <h3>World Markets</h3>
-                            <button class="btn-primary" onclick="loadGlobalMarkets()">Refresh</button>
-                        </div>
-                        <div id="globalMarketsContainer">
-                            <p class="placeholder">Global market data is not available with the current provider.</p>
                         </div>
                     </div>
                 </div>
@@ -3034,6 +2977,10 @@
 <script src="/static/js/chart/indicator-picker.js?v=1.0"></script>
 <script src="/static/js/chart/chart-toolbar.js?v=1.0"></script>
 <script src="/static/js/chart/crosshair-legend.js?v=1.0"></script>
-<script src="/static/js/app.js?v=4.17"></script>
+<script src="/static/js/app.js?v=4.25"></script>
+
+<!-- Third-party scripts loaded at end with defer/async to avoid blocking (Issue #3) -->
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js" defer></script>
+<script src="/static/js/indicators.js?v=1.1" defer></script>
 </body>
 </html>

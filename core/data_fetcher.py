@@ -73,6 +73,8 @@ SECTOR_MAP = {
     "COALINDIA.NS": "Mining", "BRITANNIA.NS": "FMCG", "BPCL.NS": "Oil & Gas",
     "COLPAL.NS": "FMCG", "SBILIFE.NS": "Insurance", "HDFCLIFE.NS": "Insurance",
     "BAJAJ-AUTO.NS": "Automobile",
+    "JPL.NS": "Telecom", "LGEINDIA.NS": "Consumer Durables",
+    "HDFIRE.NS": "Industrials", "ANANTRAJ.NS": "Realty",
 }
 
 ALL_SYMBOLS = list(dict.fromkeys(NIFTY50_SYMBOLS + MIDCAP_SYMBOLS + NIFTY500_POPULAR))

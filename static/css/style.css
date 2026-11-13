@@ -1986,7 +1986,7 @@ body.light-theme .chat-input-area input {
 /* ===== PORTFOLIO ANALYTICS ===== */
 .analytics-summary {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 12px;
 }
 
@@ -5065,4 +5065,250 @@ body { --chart-bg: var(--bg-card); }
     color: var(--text-primary);
     white-space: pre-wrap;
     margin: 0;
+}
+
+/* =============================================================================
+   PHASE 3: Crosshair Legend, Zoom Controls, Navigation
+   ============================================================================= */
+
+/* Crosshair Legend Panel */
+.crosshair-legend-panel {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: rgba(10, 10, 15, 0.92);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-primary);
+    z-index: 50;
+    pointer-events: none;
+    min-width: 220px;
+    backdrop-filter: blur(8px);
+    display: none;
+}
+
+.crosshair-legend-panel .legend-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.crosshair-legend-panel .legend-label {
+    color: var(--text-muted);
+    font-size: 10px;
+}
+
+.crosshair-legend-panel .legend-value {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.crosshair-legend-panel .legend-ohlc {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px 12px;
+}
+
+.crosshair-legend-panel .legend-indicators {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    display: none;
+}
+
+.crosshair-legend-panel #legendIndicatorValues {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 4px 12px;
+    font-size: 10px;
+}
+
+/* Zoom Controls */
+.chart-zoom-controls {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    z-index: 50;
+    pointer-events: auto;
+}
+
+.chart-zoom-controls .zoom-btn {
+    width: 32px;
+    height: 32px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--text-primary);
+    transition: all 0.15s;
+}
+
+.chart-zoom-controls .zoom-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.chart-zoom-controls .zoom-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.chart-zoom-controls .zoom-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+.chart-zoom-controls .zoom-btn[data-action="lock-scale"][style*="opacity: 1"] {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+}
+
+/* Chart Container Full - ensure proper positioning for overlays */
+.chart-container-full {
+    height: 400px;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    position: relative;
+    flex: 1;
+    min-height: 0;
+}
+
+/* Keyboard shortcut hints (shown on hover of help icon) */
+.keyboard-shortcuts-hint {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    background: rgba(10, 10, 15, 0.92);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-secondary);
+    z-index: 40;
+    display: none;
+    backdrop-filter: blur(8px);
+    max-width: 250px;
+}
+
+.keyboard-shortcuts-hint kbd {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-family: inherit;
+    font-size: 9px;
+    color: var(--accent);
+    margin: 0 2px;
+}
+
+.keyboard-shortcuts-hint .shortcut-row {
+    display: flex;
+    justify-content: space-between;
+    margin: 4px 0;
+    padding: 2px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+.keyboard-shortcuts-hint .shortcut-row:last-child {
+    border-bottom: none;
+}
+
+/* Toast improvements */
+.toast {
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(100%);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Chart loading state */
+.chart-loading {
+    position: absolute;
+    inset: 0;
+    background: var(--bg-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+}
+
+.chart-loading-spinner-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+}
+
+.skeleton-wave {
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, var(--bg-primary) 25%, var(--accent-glow) 50%, var(--bg-primary) 75%);
+    background-size: 200% 100%;
+    animation: skeletonWave 1.5s ease-in-out infinite;
+}
+
+.skeleton-wave:nth-child(2) { animation-delay: 0.2s; }
+.skeleton-wave:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes skeletonWave {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+.skeleton-text {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+/* Chart state overlay */
+.chart-state-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(10, 13, 20, 0.85);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 20;
+    font-family: Inter, sans-serif;
+    text-align: center;
+    padding: 20px;
+}
+
+.chart-state-overlay .spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid rgba(59, 130, 246, 0.2);
+    border-top-color: #3b82f6;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-bottom: 12px;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
 }

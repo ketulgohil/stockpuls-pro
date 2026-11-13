@@ -3,6 +3,8 @@ import urllib.request
 import urllib.error
 from typing import Optional
 
+from core.cache import stock_cache, cached
+
 DOWNSTOX_BASE = "https://downstox.com/api"
 
 
@@ -14,6 +16,15 @@ def _fetch(endpoint: str) -> Optional[dict]:
             return json.loads(resp.read().decode())
     except Exception:
         return None
+
+
+@cached(stock_cache)
+def get_announcements() -> list:
+    """Recent NSE corporate announcements (dividends, splits, bonus, ...)."""
+    data = _fetch("/announcements/")
+    if data and data.get("success"):
+        return data.get("announcements", [])
+    return []
 
 
 def get_fii_dii() -> dict:

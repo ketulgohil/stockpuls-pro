@@ -17,6 +17,12 @@ const ChartState = {
     theme: 'dark',
     sidebarWatchlist: true,
     sidebarContext: false,
+    // Phase 3: Crosshair, legend, navigation state
+    crosshair: {
+        lockScale: false,
+        visibleLogicalRange: null,
+        showLegend: true
+    },
 
     load() {
         try {
@@ -38,7 +44,8 @@ const ChartState = {
                 chartType: this.chartType,
                 indicators: this.indicators,
                 drawings: this.drawings,
-                theme: this.theme
+                theme: this.theme,
+                crosshair: this.crosshair
             }));
         } catch (e) {
             console.error('Failed to save chart workspace state:', e);

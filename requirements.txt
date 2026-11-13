@@ -5,4 +5,9 @@ numpy
 aiofiles
 python-multipart
 requests
+httpx>=0.25.0
+inngest>=0.4.0
+websockets>=12.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
 google-genai>=1.0.0

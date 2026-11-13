@@ -20,6 +20,7 @@ import asyncio
 import gzip
 import json
 import os
+import re
 import threading
 import time
 import urllib.request
@@ -256,6 +257,29 @@ def instrument_name(symbol: str) -> str:
     return clean
 
 
+def instrument_display_name(symbol: str) -> str:
+    """Best display name for UI lists.
+
+    Upstox master short name first; falls back to the full name (suffix
+    stripped) when the short name is missing or is just the ticker, and
+    finally to the Downstox profile for symbols not in the master at all.
+    """
+    clean = canonical_symbol(symbol)
+    entry = ensure_instruments().get(clean)
+    if entry:
+        short = entry.get("short_name") or ""
+        if short and short != clean:
+            return short
+        full = (entry.get("name") or "").strip()
+        full = re.sub(r"\s+(LIMITED|LTD\.?)\s*$", "", full, flags=re.IGNORECASE)
+        if full:
+            return full
+    profile = get_stock_profile(symbol)
+    if profile.get("name"):
+        return profile["name"]
+    return clean
+
+
 # ---------------------------------------------------------------------------
 # Quotes
 # ---------------------------------------------------------------------------
@@ -451,6 +475,23 @@ def _downstox_stock(symbol: str) -> dict:
     except Exception:
         pass
     return {}
+
+
+@cached(stock_cache)
+def get_stock_profile(symbol: str) -> dict:
+    """Display name + sector from Downstox fundamentals (cached 5 min).
+
+    Fallback for symbols the Upstox instrument map lacks (or names too
+    generically), and for sectors the static SECTOR_MAP doesn't cover.
+    """
+    payload = _downstox_stock(symbol) or {}
+    stock = payload.get("stock") or {}
+    name = (stock.get("name") or "").strip()
+    name = re.sub(r"\s+(LIMITED|LTD\.?)\s*$", "", name, flags=re.IGNORECASE)
+    return {
+        "name": name,
+        "sector": payload.get("sector") or stock.get("sector") or "Others",
+    }
 
 
 @cached(stock_cache)

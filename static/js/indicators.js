@@ -662,13 +662,162 @@
     return markers;
   }
 
+  // --- 7. Simple Moving Average (SMA) ---
+  function computeSma(bars, length = 20) {
+    const n = Math.floor(length) || 20;
+    if (!Array.isArray(bars) || n <= 0 || bars.length < n) return [];
+    const result = [];
+    let sum = 0;
+    for (let i = 0; i < n; i++) sum += getBarClose(bars[i]);
+    result.push({ time: bars[n - 1].time, value: round2(sum / n) });
+
+    for (let i = n; i < bars.length; i++) {
+      sum += getBarClose(bars[i]) - getBarClose(bars[i - n]);
+      result.push({ time: bars[i].time, value: round2(sum / n) });
+    }
+    return result;
+  }
+
+  // --- 8. Bollinger Bands ---
+  function computeBollingerBands(bars, length = 20, mult = 2) {
+    const n = Math.floor(length) || 20;
+    const k = Number(mult) || 2;
+    if (!Array.isArray(bars) || n <= 0 || bars.length < n) {
+      return { middle: [], upper: [], lower: [] };
+    }
+    const middle = [];
+    const upper = [];
+    const lower = [];
+
+    for (let i = n - 1; i < bars.length; i++) {
+      let sum = 0;
+      for (let j = i - n + 1; j <= i; j++) sum += getBarClose(bars[j]);
+      const mean = sum / n;
+
+      let varianceSum = 0;
+      for (let j = i - n + 1; j <= i; j++) {
+        const diff = getBarClose(bars[j]) - mean;
+        varianceSum += diff * diff;
+      }
+      const stdDev = Math.sqrt(varianceSum / n);
+      const time = bars[i].time;
+
+      middle.push({ time, value: round2(mean) });
+      upper.push({ time, value: round2(mean + k * stdDev) });
+      lower.push({ time, value: round2(mean - k * stdDev) });
+    }
+    return { middle, upper, lower };
+  }
+
+  // --- 9. Average True Range (ATR) ---
+  function computeAtr(bars, length = 14) {
+    const n = Math.floor(length) || 14;
+    if (!Array.isArray(bars) || n <= 0 || bars.length <= n) return [];
+
+    const trs = [];
+    for (let i = 0; i < bars.length; i++) {
+      const high = Number(bars[i].high);
+      const low = Number(bars[i].low);
+      const closePrev = i > 0 ? getBarClose(bars[i - 1]) : getBarClose(bars[i]);
+      const tr = Math.max(high - low, Math.abs(high - closePrev), Math.abs(low - closePrev));
+      trs.push(tr);
+    }
+
+    let atr = 0;
+    for (let i = 0; i < n; i++) atr += trs[i];
+    atr /= n;
+
+    const result = [{ time: bars[n - 1].time, value: round2(atr) }];
+    for (let i = n; i < bars.length; i++) {
+      atr = ((atr * (n - 1)) + trs[i]) / n;
+      result.push({ time: bars[i].time, value: round2(atr) });
+    }
+    return result;
+  }
+
+  // --- 10. Average Directional Index (ADX) ---
+  function computeAdx(bars, length = 14) {
+    const n = Math.floor(length) || 14;
+    if (!Array.isArray(bars) || n <= 0 || bars.length < n * 2) {
+      return { adx: [], pdi: [], ndi: [] };
+    }
+    const adx = [], pdi = [], ndi = [];
+    let trSmoothed = 0, dmPosSmoothed = 0, dmNegSmoothed = 0;
+
+    const trs = [], pdms = [], ndms = [];
+    for (let i = 1; i < bars.length; i++) {
+      const high = Number(bars[i].high);
+      const low = Number(bars[i].low);
+      const prevHigh = Number(bars[i - 1].high);
+      const prevLow = Number(bars[i - 1].low);
+      const prevClose = getBarClose(bars[i - 1]);
+
+      const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+      const upDiff = high - prevHigh;
+      const downDiff = prevLow - low;
+
+      const pdm = (upDiff > downDiff && upDiff > 0) ? upDiff : 0;
+      const ndm = (downDiff > upDiff && downDiff > 0) ? downDiff : 0;
+
+      trs.push(tr);
+      pdms.push(pdm);
+      ndms.push(ndm);
+    }
+
+    for (let i = 0; i < n; i++) {
+      trSmoothed += trs[i];
+      dmPosSmoothed += pdms[i];
+      dmNegSmoothed += ndms[i];
+    }
+
+    const dxs = [];
+    const times = [];
+
+    for (let i = n; i < trs.length; i++) {
+      trSmoothed = trSmoothed - (trSmoothed / n) + trs[i];
+      dmPosSmoothed = dmPosSmoothed - (dmPosSmoothed / n) + pdms[i];
+      dmNegSmoothed = dmNegSmoothed - (dmNegSmoothed / n) + ndms[i];
+
+      const plusDI = trSmoothed > 0 ? (dmPosSmoothed / trSmoothed) * 100 : 0;
+      const minusDI = trSmoothed > 0 ? (dmNegSmoothed / trSmoothed) * 100 : 0;
+
+      const diDiff = Math.abs(plusDI - minusDI);
+      const diSum = plusDI + minusDI;
+      const dx = diSum > 0 ? (diDiff / diSum) * 100 : 0;
+
+      const barTime = bars[i + 1].time;
+      pdi.push({ time: barTime, value: round2(plusDI) });
+      ndi.push({ time: barTime, value: round2(minusDI) });
+      dxs.push(dx);
+      times.push(barTime);
+    }
+
+    if (dxs.length >= n) {
+      let adxVal = 0;
+      for (let i = 0; i < n; i++) adxVal += dxs[i];
+      adxVal /= n;
+      adx.push({ time: times[n - 1], value: round2(adxVal) });
+
+      for (let i = n; i < dxs.length; i++) {
+        adxVal = ((adxVal * (n - 1)) + dxs[i]) / n;
+        adx.push({ time: times[i], value: round2(adxVal) });
+      }
+    }
+
+    return { adx, pdi, ndi };
+  }
+
   // --- Public API Export ---
   return {
     computeEma,
+    computeSma,
     computeVwap,
     computePivots,
     computeRsi,
     computeMacd,
+    computeBollingerBands,
+    computeAtr,
+    computeAdx,
     detectCandlestickPatterns,
   };
 }));

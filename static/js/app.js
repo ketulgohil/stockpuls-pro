@@ -227,7 +227,7 @@ function showTab(tabName) {
         case 'currency': loadQuickRates(); break;
         case 'results': loadUpcomingResults(); break;
         case 'invest': loadSuperinvestors(); break;
-        case 'portfolio': loadPortfolio(); loadPortfolioAnalytics(); break;
+        case 'portfolio': loadPortfolio(); loadPortfolioAnalytics(); loadBenchmark(); break;
         case 'watchlist': loadWatchlist(); break;
         case 'analysis': loadAlerts(); break;
         case 'traderdesk': initTraderDesk(); break;
@@ -2005,11 +2005,12 @@ async function loadStockNews() {
 async function loadPortfolio() {
     const data = await api('/api/portfolio');
     const container = document.getElementById('portfolioTable');
+    portfolioHoldingsCache = data.holdings || [];
     
     if (data.holdings && data.holdings.length > 0) {
         container.innerHTML = `
             <table>
-                <thead><tr><th>Symbol</th><th>Qty</th><th>Buy Price</th><th>LTP</th><th>P&L</th><th>Action</th></tr></thead>
+                <thead><tr><th>Symbol</th><th>Qty</th><th>Buy Price</th><th>LTP</th><th>Day P&L</th><th>P&L</th><th>Action</th></tr></thead>
                 <tbody>
                     ${data.holdings.map(h => `
                         <tr data-live-symbol="${h.symbol}" data-live-qty="${h.quantity}" data-live-buy="${h.buyPrice}">
@@ -2017,8 +2018,26 @@ async function loadPortfolio() {
                             <td>${h.quantity}</td>
                             <td>₹${h.buyPrice}</td>
                             <td data-live-price>${fmtPrice(h.currentPrice || h.buyPrice)}</td>
+                            <td class="${(h.dayChangePnl || 0) >= 0 ? 'positive' : 'negative'}" data-live-daypnl>${(h.dayChangePnl || 0) >= 0 ? '+' : '-'}₹${Math.abs(h.dayChangePnl || 0).toFixed(2)}</td>
                             <td class="${(h.pnl || 0) >= 0 ? 'positive' : 'negative'}" data-live-pnl>${(h.pnl || 0) >= 0 ? '+' : '-'}₹${Math.abs(h.pnl || 0).toFixed(2)} (${(h.pnlPercent || 0) >= 0 ? '+' : ''}${(h.pnlPercent || 0).toFixed(2)}%)</td>
-                            <td><button class="btn-danger" onclick="removePortfolio('${h.symbol}')">Remove</button></td>
+                            <td>
+                                <button class="btn-secondary" style="padding:4px 10px; font-size:12px;" onclick="toggleSellRow('${h.symbol}', ${h.quantity}, ${h.currentPrice || h.buyPrice})">Sell</button>
+                                <button class="btn-danger" onclick="removePortfolio('${h.symbol}')">Remove</button>
+                            </td>
+                        </tr>
+                        <tr class="portfolio-sell-row" id="sellRow-${h.symbol}" style="display:none">
+                            <td colspan="7" style="padding:10px 12px;">
+                                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                                    <span style="font-weight:600;">Sell ${h.symbol.replace('.NS', '')}</span>
+                                    <span style="font-size:12px; color:var(--text-secondary);">(you hold ${h.quantity})</span>
+                                    <input type="number" id="sellQty-${h.symbol}" min="1" max="${h.quantity}" step="1" value="${h.quantity}" style="width:90px;" aria-label="Quantity to sell">
+                                    <span style="font-size:12px;">@ ₹</span>
+                                    <input type="number" id="sellPrice-${h.symbol}" min="0" step="0.05" value="${h.currentPrice || h.buyPrice}" style="width:110px;" aria-label="Sell price">
+                                    <button class="btn-primary" style="padding:6px 14px;" onclick="confirmSellHolding('${h.symbol}')">Confirm Sell</button>
+                                    <button class="btn-secondary" style="padding:6px 14px;" onclick="toggleSellRow('${h.symbol}')">Cancel</button>
+                                    <span style="font-size:11px; color:var(--text-secondary);">Sell price optional — records realized P&L</span>
+                                </div>
+                            </td>
                         </tr>
                     `).join('')}
                 </tbody>
@@ -2030,6 +2049,456 @@ async function loadPortfolio() {
 
     refreshLiveSubscriptions();
     applyLiveDomQuotes();
+    loadRealizedPnl();
+    loadDividendData();
+}
+
+// ===== ALLOCATION DONUT (per-stock weights) =====
+const DONUT_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16', '#f97316', '#14b8a6', '#a855f7', '#eab308'];
+
+function fmtCompactInr(v) {
+    if (v >= 1e7) return '₹' + (v / 1e7).toFixed(2) + ' Cr';
+    if (v >= 1e5) return '₹' + (v / 1e5).toFixed(2) + ' L';
+    return '₹' + Math.round(v).toLocaleString();
+}
+
+// SVG donut of per-stock portfolio weights + legend. Re-rendered live.
+function renderAllocationDonut(donutId, legendId, holdings) {
+    const donutEl = document.getElementById(donutId);
+    const legendEl = document.getElementById(legendId);
+    if (!donutEl || !legendEl) return;
+
+    const items = (holdings || [])
+        .map(h => {
+            const qty = Number(h.quantity) || 0;
+            const quote = getLiveQuote(h.symbol);
+            const price = quote ? quote.price : (Number(h.currentPrice) || Number(h.buyPrice) || 0);
+            return { symbol: h.symbol, value: price * qty };
+        })
+        .filter(i => i.value > 0)
+        .sort((a, b) => b.value - a.value);
+
+    const total = items.reduce((s, i) => s + i.value, 0);
+    if (!items.length || total <= 0) {
+        donutEl.innerHTML = '<p class="placeholder">No allocation data</p>';
+        legendEl.innerHTML = '';
+        return;
+    }
+
+    const R = 15.9155; // circumference ≈ 100 units
+    let acc = 0;
+    const segs = items.map((it, idx) => {
+        const pct = (it.value / total) * 100;
+        const off = 25 - acc;
+        acc += pct;
+        const color = DONUT_COLORS[idx % DONUT_COLORS.length];
+        return `<circle cx="21" cy="21" r="${R}" fill="none" stroke="${color}" stroke-width="5" stroke-dasharray="${pct.toFixed(2)} ${(100 - pct).toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"></circle>`;
+    }).join('');
+
+    donutEl.innerHTML = `
+        <svg viewBox="0 0 42 42" width="150" height="150" role="img" aria-label="Stock allocation donut">
+            <circle cx="21" cy="21" r="${R}" fill="none" stroke="var(--border, rgba(128,128,128,0.25))" stroke-width="5"></circle>
+            ${segs}
+            <text x="21" y="19.5" text-anchor="middle" style="font-size:4.5px; fill:var(--text-secondary); letter-spacing:0.5px;">TOTAL</text>
+            <text x="21" y="25" text-anchor="middle" style="font-size:5px; font-weight:700; fill:var(--text-primary);">${fmtCompactInr(total)}</text>
+        </svg>`;
+
+    legendEl.innerHTML = items.map((it, idx) => {
+        const pct = (it.value / total) * 100;
+        const color = DONUT_COLORS[idx % DONUT_COLORS.length];
+        return `<div style="display:flex; align-items:center; gap:8px; font-size:12px; margin-bottom:5px; min-width:220px;">
+            <span style="width:10px; height:10px; border-radius:3px; background:${color}; display:inline-block; flex-shrink:0;"></span>
+            <span style="font-weight:600;">${it.symbol.replace('.NS', '')}</span>
+            <span style="color:var(--text-secondary);">${pct.toFixed(1)}%</span>
+            <span style="margin-left:auto; color:var(--text-secondary);">${fmtCompactInr(it.value)}</span>
+        </div>`;
+    }).join('');
+}
+
+// ===== BENCHMARK: PORTFOLIO vs NIFTY 50 (#7) =====
+let benchmarkPeriod = '1Y';
+let benchmarkChartObj = null;
+
+const BENCHMARK_PERIODS = ['1M', '3M', '6M', '1Y', 'ALL'];
+
+// Two normalized (100 = start) line series: portfolio buy-and-hold vs NIFTY 50.
+async function loadBenchmark(period) {
+    const card = document.getElementById('benchmarkCard');
+    if (!card) return;
+    if (period) benchmarkPeriod = period;
+
+    renderBenchmarkPeriodButtons();
+
+    const summary = document.getElementById('benchmarkSummary');
+    const chartDiv = document.getElementById('benchmarkChart');
+    const res = await api(`/api/portfolio/benchmark?period=${encodeURIComponent(benchmarkPeriod)}`);
+    const errMsg = res.error || res.detail;
+
+    if (errMsg) {
+        card.style.display = '';
+        summary.innerHTML = `<span style="color:var(--text-muted);">${escapeHtml(errMsg)}</span>`;
+        chartDiv.innerHTML = '';
+        if (benchmarkChartObj) { benchmarkChartObj.remove(); benchmarkChartObj = null; }
+        return;
+    }
+
+    card.style.display = '';
+
+    const pRet = Number(res.portfolioReturn) || 0;
+    const bRet = Number(res.benchmarkReturn) || 0;
+    const diff = pRet - bRet;
+    const fmtPct = v => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+    summary.innerHTML =
+        `<span style="margin-right:14px;">Portfolio: <span class="${pRet >= 0 ? 'positive' : 'negative'}" style="font-weight:700;">${fmtPct(pRet)}</span></span>` +
+        `<span style="margin-right:14px;">NIFTY 50: <span class="${bRet >= 0 ? 'positive' : 'negative'}" style="font-weight:700;">${fmtPct(bRet)}</span></span>` +
+        `<span>${diff >= 0 ? 'Outperforming' : 'Underperforming'} by <span class="${diff >= 0 ? 'positive' : 'negative'}" style="font-weight:700;">${fmtPct(diff)}</span></span>` +
+        `<span style="color:var(--text-muted);"> · buy-and-hold, weighted by current market value, start = 100</span>`;
+
+    if (!res.dates || res.dates.length < 2 || !chartDiv) return;
+    chartDiv.innerHTML = '';
+
+    if (benchmarkChartObj) { benchmarkChartObj.remove(); benchmarkChartObj = null; }
+    const height = 300;
+    benchmarkChartObj = LightweightCharts.createChart(chartDiv, {
+        width: chartDiv.clientWidth || 800,
+        height: height,
+        layout: { background: { color: getChartBg() }, textColor: '#8888a0' },
+        grid: { vertLines: { color: 'rgba(255,255,255,0.04)' }, horzLines: { color: 'rgba(255,255,255,0.04)' } },
+        rightPriceScale: { borderColor: 'rgba(255,255,255,0.06)' },
+        timeScale: { borderColor: 'rgba(255,255,255,0.06)' }
+    });
+
+    const portfolioSeries = benchmarkChartObj.addLineSeries({ color: '#6366f1', lineWidth: 2, title: 'Portfolio' });
+    const benchSeries = benchmarkChartObj.addLineSeries({ color: '#f59e0b', lineWidth: 2, title: 'NIFTY 50' });
+    portfolioSeries.setData(res.dates.map((d, i) => ({ time: d, value: res.portfolioSeries[i] })));
+    benchSeries.setData(res.dates.map((d, i) => ({ time: d, value: res.benchmarkSeries[i] })));
+    benchmarkChartObj.timeScale().fitContent();
+}
+
+function renderBenchmarkPeriodButtons() {
+    const wrap = document.getElementById('benchmarkPeriods');
+    if (!wrap) return;
+    wrap.innerHTML = BENCHMARK_PERIODS.map(p =>
+        `<button class="btn-secondary" style="padding:4px 10px; font-size:12px; ${p === benchmarkPeriod ? 'border-color:var(--accent); color:var(--accent);' : ''}" onclick="loadBenchmark('${p}')">${p}</button>`
+    ).join('');
+}
+
+// ===== DIVIDENDS & CORPORATE ACTIONS =====
+let portfolioHoldingsCache = [];
+// #8b — auto-detected event suggestions, keyed by event id for form pre-fill.
+let eventSuggestionsById = {};
+
+async function loadDividendData() {
+    const card = document.getElementById('dividendCard');
+    if (!card) return;
+    const data = await api('/api/portfolio/dividends');
+    const dividends = data.dividends || [];
+    const actions = data.corpActions || [];
+    const holdings = portfolioHoldingsCache || [];
+    const eventsData = await api('/api/portfolio/events');
+    const suggestions = (eventsData && eventsData.suggestions) || [];
+    eventSuggestionsById = {};
+    suggestions.forEach(s => { eventSuggestionsById[s.id] = s; });
+
+    if (!dividends.length && !actions.length && !holdings.length) {
+        card.style.display = 'none';
+        return;
+    }
+    card.style.display = '';
+
+    const options = holdings.map(h =>
+        `<option value="${h.symbol}">${h.symbol.replace('.NS', '')}</option>`).join('');
+    const today = new Date().toISOString().slice(0, 10);
+
+    const entries = [
+        ...dividends.map(d => ({
+            date: d.recordedAt || d.date, type: 'Dividend', symbol: d.symbol,
+            detail: `₹${d.amount}${d.note ? ' — ' + escapeHtml(d.note) : ''}`, amount: d.amount
+        })),
+        ...actions.map(a => ({
+            date: a.recordedAt || a.date,
+            type: a.type === 'bonus' ? 'Bonus' : 'Split', symbol: a.symbol,
+            detail: `${a.ratio}:1 — qty ${a.before?.quantity ?? '?'} → ${a.after?.quantity ?? '?'} · avg ₹${a.before?.avgPrice ?? '?'} → ₹${a.after?.avgPrice ?? '?'}`,
+            amount: null
+        }))
+    ].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+
+    const entryRows = entries.map(e => `
+        <tr>
+            <td>${e.date ? new Date(e.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }) : '—'}</td>
+            <td><span style="font-size:11px; padding:2px 8px; border-radius:6px; background:${e.type === 'Dividend' ? 'rgba(16,185,129,0.15)' : 'rgba(59,130,246,0.15)'}; color:${e.type === 'Dividend' ? '#10b981' : '#3b82f6'};">${e.type}</span></td>
+            <td><strong>${e.symbol.replace('.NS', '')}</strong></td>
+            <td style="font-size:12px;">${e.detail}</td>
+        </tr>`).join('');
+
+    // #8b — auto-detected suggestions (dividend / split / bonus) for holdings.
+    const evMeta = {
+        dividend: { label: 'Dividend', color: '#10b981', bg: 'rgba(16,185,129,0.15)' },
+        split: { label: 'Split', color: '#3b82f6', bg: 'rgba(59,130,246,0.15)' },
+        bonus: { label: 'Bonus', color: '#8b5cf6', bg: 'rgba(139,92,246,0.15)' }
+    };
+    const suggestionRows = suggestions.map(s => {
+        const meta = evMeta[s.type] || evMeta.dividend;
+        const short = s.subject && s.subject.length > 120 ? s.subject.slice(0, 120) + '…' : (s.subject || '');
+        const detail = s.type === 'dividend'
+            ? (s.suggestedAmount != null
+                ? `₹${s.perShare}/share × ${s.quantity} → <strong>₹${s.suggestedAmount}</strong> suggested`
+                : 'Amount not stated — enter manually')
+            : (s.ratio
+                ? `${s.ratio}:1 suggested — verify before applying`
+                : 'Ratio not stated — enter manually');
+        const date = s.publishedAt ? new Date(s.publishedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '';
+        return `
+            <tr>
+                <td><span style="font-size:11px; padding:2px 8px; border-radius:6px; background:${meta.bg}; color:${meta.color};">${meta.label}</span></td>
+                <td><strong>${escapeHtml(s.symbol)}</strong></td>
+                <td style="font-size:12px; max-width:380px;">${escapeHtml(short)}<br><span style="font-size:11px; color:var(--text-secondary);">${date}</span></td>
+                <td style="font-size:12px;">${detail}</td>
+                <td style="white-space:nowrap;">
+                    <button class="btn-primary" style="padding:3px 10px; font-size:11px;" onclick="useEventInForm('${s.id}')">Use in form</button>
+                    <button class="btn-secondary" style="padding:3px 10px; font-size:11px;" onclick="dismissEvent('${s.id}')">Dismiss</button>
+                </td>
+            </tr>`;
+    }).join('');
+
+    const suggestionsBlock = suggestions.length ? `
+        <div style="border:1px solid rgba(245,158,11,0.35); border-radius:8px; padding:10px 12px; margin-bottom:14px;">
+            <div style="font-size:12px; margin-bottom:6px;">
+                <strong>Detected events</strong> — from NSE announcements
+                <span style="color:var(--text-secondary);">· suggestions only, applying is always manual</span>
+            </div>
+            <table>
+                <thead><tr><th>Type</th><th>Symbol</th><th>Announcement</th><th>Suggestion</th><th></th></tr></thead>
+                <tbody>${suggestionRows}</tbody>
+            </table>
+        </div>` : '';
+
+    document.getElementById('dividendBody').innerHTML = `
+        <div style="font-size:13px; margin-bottom:12px;">
+            Lifetime dividends: <span class="positive">+₹${(data.totalDividends || 0).toLocaleString()}</span>
+            <span style="color:var(--text-secondary);">· ${dividends.length} dividend${dividends.length !== 1 ? 's' : ''} · ${actions.length} corporate action${actions.length !== 1 ? 's' : ''}</span>
+        </div>
+
+        ${suggestionsBlock}
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
+            <select id="divSymbol" style="width:150px;" aria-label="Stock for dividend">${options || '<option value="">— no holdings —</option>'}</select>
+            <input type="number" id="divAmount" placeholder="Amount ₹" step="0.01" min="0" style="width:110px;">
+            <input type="date" id="divDate" value="${today}" style="width:150px;">
+            <input type="text" id="divNote" placeholder="Note (optional)" style="width:170px;">
+            <button class="btn-primary" style="padding:6px 14px;" onclick="addDividend()">Add Dividend</button>
+        </div>
+
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:14px;">
+            <select id="caSymbol" style="width:150px;" aria-label="Stock for corporate action">${options || '<option value="">— no holdings —</option>'}</select>
+            <select id="caType" style="width:140px;">
+                <option value="split">Stock Split</option>
+                <option value="bonus">Bonus Issue</option>
+            </select>
+            <input type="number" id="caRatio" placeholder="New per old (e.g. 2)" step="any" min="0" style="width:170px;">
+            <button class="btn-secondary" style="padding:6px 14px;" onclick="applyCorpAction()">Apply Action</button>
+            <span style="font-size:11px; color:var(--text-secondary);">2:1 → qty ×2, avg ÷2 · invested value preserved</span>
+        </div>
+
+        ${entries.length ? `
+        <table>
+            <thead><tr><th>Date</th><th>Type</th><th>Symbol</th><th>Detail</th></tr></thead>
+            <tbody>${entryRows}</tbody>
+        </table>` : '<p class="placeholder">No dividends or corporate actions recorded yet</p>'}
+    `;
+}
+
+async function addDividend() {
+    const symbol = document.getElementById('divSymbol')?.value;
+    const amount = parseFloat(document.getElementById('divAmount')?.value);
+    const date = document.getElementById('divDate')?.value;
+    const note = document.getElementById('divNote')?.value || '';
+    if (!symbol) return showToast('Select a stock', 'warning');
+    if (!Number.isFinite(amount) || amount <= 0) return showToast('Enter a valid dividend amount', 'warning');
+
+    const res = await api(`/api/portfolio/${symbol}/dividend`, {
+        method: 'POST',
+        body: JSON.stringify({ amount, date: date || undefined, note })
+    });
+    const errMsg = res.error || res.detail;
+    if (errMsg) return showToast(errMsg, 'negative');
+    showToast(res.message || 'Dividend recorded', 'success');
+    loadPortfolio();
+}
+
+async function applyCorpAction() {
+    const symbol = document.getElementById('caSymbol')?.value;
+    const type = document.getElementById('caType')?.value || 'split';
+    const ratio = parseFloat(document.getElementById('caRatio')?.value);
+    if (!symbol) return showToast('Select a stock', 'warning');
+    if (!Number.isFinite(ratio) || ratio <= 0) return showToast('Enter a valid ratio (e.g. 2 for 2:1)', 'warning');
+    if (!confirm(`Apply ${ratio}:1 ${type === 'bonus' ? 'bonus issue' : 'stock split'} to ${symbol}? Qty will be ×${ratio}, avg price ÷${ratio}.`)) return;
+
+    const res = await api(`/api/portfolio/${symbol}/corp-action`, {
+        method: 'POST',
+        body: JSON.stringify({ ratio, type })
+    });
+    const errMsg = res.error || res.detail;
+    if (errMsg) return showToast(errMsg, 'negative');
+    showToast(res.message || 'Corporate action applied', 'success');
+    loadPortfolio();
+    loadPortfolioAnalytics();
+}
+
+// #8b — pre-fill the matching form from a detected announcement. The user
+// still submits it themselves; nothing is applied automatically.
+function useEventInForm(id) {
+    const s = eventSuggestionsById[id];
+    if (!s) return;
+    if (s.type === 'dividend') {
+        if (document.getElementById('divSymbol')) document.getElementById('divSymbol').value = s.holdingSymbol;
+        const amount = s.suggestedAmount != null ? s.suggestedAmount : (s.perShare || '');
+        if (document.getElementById('divAmount')) document.getElementById('divAmount').value = amount;
+        if (document.getElementById('divNote')) document.getElementById('divNote').value = (s.subject || '').slice(0, 80);
+        if (document.getElementById('divAmount')) document.getElementById('divAmount').focus();
+        showToast('Dividend form pre-filled — review and submit', 'info');
+    } else {
+        if (document.getElementById('caSymbol')) document.getElementById('caSymbol').value = s.holdingSymbol;
+        if (document.getElementById('caType')) document.getElementById('caType').value = s.type;
+        if (document.getElementById('caRatio')) document.getElementById('caRatio').value = s.ratio || '';
+        if (document.getElementById('caRatio')) document.getElementById('caRatio').focus();
+        showToast('Split/bonus form pre-filled — verify ratio, then Apply', 'info');
+    }
+}
+
+// #8b — permanently hide a detected suggestion.
+async function dismissEvent(id) {
+    const res = await api(`/api/portfolio/events/${id}/dismiss`, { method: 'POST' });
+    const errMsg = res.error || res.detail;
+    if (errMsg) return showToast(errMsg, 'negative');
+    showToast('Event dismissed', 'success');
+    loadDividendData();
+}
+
+// Toggle the inline "sell portion of a holding" row for a holding.
+function toggleSellRow(symbol, qty, price) {
+    const row = document.getElementById('sellRow-' + symbol);
+    if (!row) return;
+    const show = row.style.display === 'none';
+    document.querySelectorAll('.portfolio-sell-row').forEach(r => {
+        if (r !== row) r.style.display = 'none';
+    });
+    row.style.display = show ? '' : 'none';
+    if (show) {
+        if (qty != null) {
+            const qtyEl = document.getElementById('sellQty-' + symbol);
+            if (qtyEl) { qtyEl.max = qty; qtyEl.value = qty; }
+        }
+        if (price != null) {
+            const priceEl = document.getElementById('sellPrice-' + symbol);
+            if (priceEl) priceEl.value = price;
+        }
+    }
+}
+
+// Sell part (or all) of a holding via POST /api/portfolio/{symbol}/sell.
+async function confirmSellHolding(symbol) {
+    const qty = parseFloat(document.getElementById('sellQty-' + symbol)?.value);
+    const price = parseFloat(document.getElementById('sellPrice-' + symbol)?.value);
+    if (!Number.isFinite(qty) || qty <= 0) return showToast('Enter a valid quantity to sell', 'warning');
+
+    const body = { quantity: qty };
+    if (Number.isFinite(price) && price > 0) body.price = price;
+
+    const res = await api(`/api/portfolio/${symbol}/sell`, {
+        method: 'POST',
+        body: JSON.stringify(body)
+    });
+
+    const errMsg = res.error || res.detail;
+    if (errMsg) return showToast(errMsg, 'negative');
+    showToast(res.message || `Sold ${qty} of ${symbol}`, 'success');
+    loadPortfolio();
+    loadPortfolioAnalytics();
+}
+
+// Portfolio summary bar: Today's P&L (day change) · Unrealized · Realized.
+// Today + Unrealized recompute from liveQuoteCache on every WS tick.
+let portfolioRealizedTotal = null;
+
+function updatePortfolioSummaryBar() {
+    const el = document.getElementById('portfolioSummaryBar');
+    if (!el) return;
+    if (!analyticsLiveHoldings.length && portfolioRealizedTotal == null) {
+        el.style.display = 'none';
+        return;
+    }
+
+    let invested = 0;
+    let current = 0;
+    let dayPnl = 0;
+    analyticsLiveHoldings.forEach(h => {
+        const qty = Number(h.quantity) || 0;
+        const buy = Number(h.buyPrice) || 0;
+        invested += qty * buy;
+        const quote = getLiveQuote(h.symbol);
+        current += (quote ? quote.price : (Number(h.currentPrice) || buy)) * qty;
+        dayPnl += quote ? (quote.change || 0) * qty : (Number(h.dayChangePnl) || 0);
+    });
+
+    const totalPnl = current - invested;
+    const totalPct = invested > 0 ? (totalPnl / invested) * 100 : 0;
+    const prevValue = current - dayPnl;
+    const dayPct = prevValue > 0 ? (dayPnl / prevValue) * 100 : 0;
+
+    const seg = (label, value, pct, showPct) =>
+        `<span style="margin-right:8px;">${label}: <span class="${value >= 0 ? 'positive' : 'negative'}">${value >= 0 ? '+' : '-'}₹${Math.abs(Math.round(value * 100) / 100).toLocaleString()}${showPct && Number.isFinite(pct) && pct !== 0 ? ` (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)` : ''}</span></span>`;
+
+    const parts = [
+        seg('Today', dayPnl, dayPct, true),
+        seg('Unrealized', totalPnl, totalPct, true)
+    ];
+    if (portfolioRealizedTotal != null) parts.push(seg('Realized', portfolioRealizedTotal, null, false));
+
+    el.style.display = '';
+    el.innerHTML = parts.join('<span style="color:var(--text-muted);">·</span> ');
+}
+
+// Lifetime realized P&L from recorded sell trades + trade history table.
+async function loadRealizedPnl() {
+    const data = await api('/api/portfolio/realized');
+    portfolioRealizedTotal = data.totalRealizedPnl || 0;
+    updatePortfolioSummaryBar();
+    renderTradeHistory(data.trades || []);
+}
+
+// Render the sell-trade log (newest first). Hidden until the first trade.
+function renderTradeHistory(trades) {
+    const card = document.getElementById('tradeHistoryCard');
+    const body = document.getElementById('tradeHistoryTable');
+    if (!card || !body) return;
+    if (!trades.length) {
+        card.style.display = 'none';
+        body.innerHTML = '';
+        return;
+    }
+    card.style.display = '';
+
+    const rows = [...trades].sort((a, b) => new Date(b.soldAt || 0) - new Date(a.soldAt || 0)).map(t => {
+        const pnl = t.realizedPnl;
+        const date = t.soldAt
+            ? new Date(t.soldAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+            : '—';
+        return `
+            <tr>
+                <td>${date}</td>
+                <td><strong>${t.symbol.replace('.NS', '')}</strong></td>
+                <td>${t.quantity}</td>
+                <td>${t.price != null ? '₹' + t.price : '—'}</td>
+                <td>₹${t.buyPrice}</td>
+                <td class="${(pnl || 0) >= 0 ? 'positive' : 'negative'}">${pnl != null ? (pnl >= 0 ? '+' : '-') + '₹' + Math.abs(pnl).toLocaleString() : '—'}</td>
+            </tr>`;
+    }).join('');
+
+    body.innerHTML = `
+        <table>
+            <thead><tr><th>Date</th><th>Symbol</th><th>Qty Sold</th><th>Sell Price</th><th>Avg Buy</th><th>Realized P&L</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
 }
 
 async function addPortfolio() {
@@ -2051,11 +2520,13 @@ async function addPortfolio() {
     document.getElementById('portfolioSuggestions').innerHTML = '';
     
     loadPortfolio();
+    loadPortfolioAnalytics();
 }
 
 async function removePortfolio(symbol) {
     await api(`/api/portfolio/${symbol}`, { method: 'DELETE' });
     loadPortfolio();
+    loadPortfolioAnalytics();
 }
 
 // Watchlist
@@ -3660,19 +4131,25 @@ async function loadMarketStatusBanner() {
 }
 
 // Portfolio Analytics
+// Live analytics state — raw holdings so updateAnalyticsLive() can
+// recompute the summary and performer rows from WebSocket quotes.
+let analyticsLiveHoldings = [];
+
 async function loadPortfolioAnalytics() {
     const container = document.getElementById('portfolioAnalytics');
     container.innerHTML = '<p class="placeholder">Loading analytics...</p>';
-    
+
     const data = await api('/api/analytics/portfolio');
-    
+
     if (data.error) {
+        analyticsLiveHoldings = [];
         container.innerHTML = `<p class="placeholder">${data.error}</p>`;
         return;
     }
-    
+
     const summary = data.summary;
-    
+    analyticsLiveHoldings = data.holdings || [];
+
     container.innerHTML = `
         <div class="analytics-summary">
             <div class="analytics-card">
@@ -3681,18 +4158,22 @@ async function loadPortfolioAnalytics() {
             </div>
             <div class="analytics-card">
                 <span class="label">Current Value</span>
-                <span class="value">₹${summary.totalCurrentValue.toLocaleString()}</span>
+                <span class="value" data-live-current-value>₹${summary.totalCurrentValue.toLocaleString()}</span>
             </div>
             <div class="analytics-card">
                 <span class="label">P&L</span>
-                <span class="value ${summary.totalPnL >= 0 ? 'positive' : 'negative'}">${summary.totalPnL >= 0 ? '+' : ''}₹${summary.totalPnL.toLocaleString()}</span>
+                <span class="value ${summary.totalPnL >= 0 ? 'positive' : 'negative'}" data-live-total-pnl>${summary.totalPnL >= 0 ? '+' : ''}₹${summary.totalPnL.toLocaleString()}</span>
+            </div>
+            <div class="analytics-card">
+                <span class="label">Today</span>
+                <span class="value ${summary.totalDayPnl >= 0 ? 'positive' : 'negative'}" data-live-day-pnl>${summary.totalDayPnl >= 0 ? '+' : ''}₹${summary.totalDayPnl.toLocaleString()}</span>
             </div>
             <div class="analytics-card">
                 <span class="label">Return</span>
-                <span class="value ${summary.totalReturn >= 0 ? 'positive' : 'negative'}">${summary.totalReturn >= 0 ? '+' : ''}${summary.totalReturn}%</span>
+                <span class="value ${summary.totalReturn >= 0 ? 'positive' : 'negative'}" data-live-total-return>${summary.totalReturn >= 0 ? '+' : ''}${summary.totalReturn}%</span>
             </div>
         </div>
-        
+
         <div class="grid-2 mt-2">
             <div class="sector-allocation">
                 <h4>Sector Allocation</h4>
@@ -3708,26 +4189,103 @@ async function loadPortfolioAnalytics() {
                     `).join('')}
                 </div>
             </div>
-            
+
             <div class="performers">
                 <h4>Top Performers</h4>
-                ${data.topPerformers.map(p => `
-                    <div class="performer-item positive">
+                ${data.topPerformers.length ? data.topPerformers.map(p => `
+                    <div class="performer-item ${p.returnPercent >= 0 ? 'positive' : 'negative'}" data-perf-symbol="${p.symbol}">
                         <span>${p.name}</span>
-                        <span>+${p.returnPercent}%</span>
+                        <span>${p.returnPercent >= 0 ? '+' : ''}${p.returnPercent}%</span>
                     </div>
-                `).join('')}
-                
+                `).join('') : '<p class="placeholder">No profitable holdings yet</p>'}
+
                 <h4 class="mt-2">Worst Performers</h4>
-                ${data.worstPerformers.map(p => `
-                    <div class="performer-item negative">
+                ${data.worstPerformers.length ? data.worstPerformers.map(p => `
+                    <div class="performer-item ${p.returnPercent >= 0 ? 'positive' : 'negative'}" data-perf-symbol="${p.symbol}">
                         <span>${p.name}</span>
-                        <span>${p.returnPercent}%</span>
+                        <span>${p.returnPercent >= 0 ? '+' : ''}${p.returnPercent}%</span>
                     </div>
-                `).join('')}
+                `).join('') : '<p class="placeholder">No losing holdings 🎉</p>'}
+            </div>
+        </div>
+
+        <div class="card mt-2" style="padding:16px;">
+            <h4>Stock Allocation</h4>
+            <div style="display:flex; align-items:center; gap:28px; flex-wrap:wrap; margin-top:8px;">
+                <div id="allocationDonut"></div>
+                <div id="allocationLegend" style="flex:1; min-width:240px;"></div>
             </div>
         </div>
     `;
+
+    // Pick up quotes that arrived while we were rendering.
+    updateAnalyticsLive();
+}
+
+// Recompute the Analytics summary + performer rows from liveQuoteCache so the
+// Analytics section always matches the live P&L in the holdings table.
+function updateAnalyticsLive() {
+    const container = document.getElementById('portfolioAnalytics');
+    if (!container || !analyticsLiveHoldings.length) return;
+
+    let invested = 0;
+    let current = 0;
+    const pctBySymbol = {};
+
+    analyticsLiveHoldings.forEach(h => {
+        const qty = Number(h.quantity) || 0;
+        const buy = Number(h.buyPrice) || 0;
+        invested += qty * buy;
+        const quote = getLiveQuote(h.symbol);
+        const price = quote ? quote.price : (Number(h.currentPrice) || buy);
+        current += price * qty;
+        pctBySymbol[h.symbol] = buy > 0 ? ((price - buy) / buy) * 100 : 0;
+    });
+
+    const pnl = current - invested;
+    const ret = invested > 0 ? (pnl / invested) * 100 : 0;
+
+    const cvEl = container.querySelector('[data-live-current-value]');
+    if (cvEl) cvEl.textContent = `₹${(Math.round(current * 100) / 100).toLocaleString()}`;
+
+    const pnlEl = container.querySelector('[data-live-total-pnl]');
+    if (pnlEl) {
+        pnlEl.textContent = `${pnl >= 0 ? '+' : ''}₹${(Math.round(pnl * 100) / 100).toLocaleString()}`;
+        pnlEl.classList.toggle('positive', pnl >= 0);
+        pnlEl.classList.toggle('negative', pnl < 0);
+    }
+
+    const retEl = container.querySelector('[data-live-total-return]');
+    if (retEl) {
+        retEl.textContent = `${ret >= 0 ? '+' : ''}${ret.toFixed(2)}%`;
+        retEl.classList.toggle('positive', ret >= 0);
+        retEl.classList.toggle('negative', ret < 0);
+    }
+
+    const dayEl = container.querySelector('[data-live-day-pnl]');
+    if (dayEl) {
+        let day = 0;
+        analyticsLiveHoldings.forEach(h => {
+            const qty = Number(h.quantity) || 0;
+            const quote = getLiveQuote(h.symbol);
+            day += quote ? (quote.change || 0) * qty : (Number(h.dayChangePnl) || 0);
+        });
+        dayEl.textContent = `${day >= 0 ? '+' : ''}₹${(Math.round(day * 100) / 100).toLocaleString()}`;
+        dayEl.classList.toggle('positive', day >= 0);
+        dayEl.classList.toggle('negative', day < 0);
+    }
+
+    container.querySelectorAll('[data-perf-symbol]').forEach(el => {
+        const pct = pctBySymbol[el.getAttribute('data-perf-symbol')];
+        if (!Number.isFinite(pct)) return;
+        const span = el.querySelector('span:last-child');
+        if (span) span.textContent = `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
+        el.classList.toggle('positive', pct >= 0);
+        el.classList.toggle('negative', pct < 0);
+    });
+
+    // Stock weights drift with prices — keep the donut live too.
+    renderAllocationDonut('allocationDonut', 'allocationLegend', analyticsLiveHoldings);
 }
 
 // Export Portfolio Report
@@ -5038,6 +5596,18 @@ function applyLiveDomQuotes(root = document) {
             pctEl.classList.toggle('negative', quote.changePercent < 0);
         }
 
+        const dayEl = container.querySelector('[data-live-daypnl]');
+        if (dayEl) {
+            const qty = parseFloat(container.getAttribute('data-live-qty'));
+            if (Number.isFinite(qty)) {
+                const dayPnl = (quote.change || 0) * qty;
+                const pct = Number(quote.changePercent || 0);
+                dayEl.textContent = `${dayPnl >= 0 ? '+' : '-'}₹${Math.abs(dayPnl).toFixed(2)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
+                dayEl.classList.toggle('positive', dayPnl >= 0);
+                dayEl.classList.toggle('negative', dayPnl < 0);
+            }
+        }
+
         const pnlEl = container.querySelector('[data-live-pnl]');
         if (pnlEl) {
             const qty = parseFloat(container.getAttribute('data-live-qty'));
@@ -5051,6 +5621,13 @@ function applyLiveDomQuotes(root = document) {
             }
         }
     });
+
+    // Keep the Analytics summary + dashboard portfolio card in sync.
+    if (root === document) {
+        updateAnalyticsLive();
+        updateDashboardPortfolioValue();
+        updatePortfolioSummaryBar();
+    }
 }
 
 function flashElement(el, className) {
@@ -5275,12 +5852,24 @@ let portfolioTickerInterval = null;
 async function loadPortfolioTicker() {
     try {
         const data = await api('/api/portfolio/live-pnl');
+        const holdings = data.holdings || [];
+
+        // Feed the same live pipeline the Analytics section uses so the
+        // dashboard Portfolio Holdings card ticks with the WebSocket too.
+        analyticsLiveHoldings = holdings.map(h => ({
+            symbol: h.symbol,
+            quantity: h.quantity,
+            buyPrice: h.buyPrice,
+            currentPrice: h.currentPrice,
+            dayChangePnl: h.dayChangePnl
+        }));
+        updateDashboardPortfolioValue();
 
         const ticker = document.getElementById('tickerContent');
-        if (!ticker || !data.holdings || data.holdings.length === 0) return;
+        if (!ticker || holdings.length === 0) return;
 
         // Create scrolling ticker content
-        const tickerItems = data.holdings.map(h => `
+        const tickerItems = holdings.map(h => `
             <span class="ticker-item" onclick="selectStock('${h.symbol}'); showTab('chart')" style="cursor:pointer">
                 <span class="ticker-symbol">${h.symbol.replace('.NS', '')}</span>
                 <span class="ticker-price">₹${h.currentPrice}</span>
@@ -5292,8 +5881,60 @@ async function loadPortfolioTicker() {
 
         // Duplicate for seamless scroll
         ticker.innerHTML = tickerItems + tickerItems;
+
+        // Subscribe portfolio symbols so WebSocket quotes start flowing.
+        refreshLiveSubscriptions();
     } catch (error) {
         console.error('Error loading portfolio ticker:', error);
+    }
+}
+
+// Dashboard "Portfolio Holdings" quick-stat card: total current value +
+// total P&L, recomputed from liveQuoteCache on every WebSocket tick.
+function updateDashboardPortfolioValue() {
+    const valEl = document.getElementById('dashPortfolioVal');
+    if (!valEl) return;
+    const pnlEl = document.getElementById('dashPortfolioPnl');
+
+    // #9b — allocation donut on the dashboard (re-rendered live, per tick).
+    const allocCard = document.getElementById('dashAllocationCard');
+    if (allocCard) {
+        if (!analyticsLiveHoldings.length) {
+            allocCard.style.display = 'none';
+        } else {
+            allocCard.style.display = '';
+            renderAllocationDonut('dashAllocationDonut', 'dashAllocationLegend', analyticsLiveHoldings);
+        }
+    }
+
+    if (!analyticsLiveHoldings.length) {
+        valEl.textContent = '₹0.00';
+        if (pnlEl) {
+            pnlEl.textContent = 'No holdings yet';
+            pnlEl.className = '';
+        }
+        return;
+    }
+
+    let invested = 0;
+    let current = 0;
+    let dayPnl = 0;
+    analyticsLiveHoldings.forEach(h => {
+        const qty = Number(h.quantity) || 0;
+        const buy = Number(h.buyPrice) || 0;
+        invested += qty * buy;
+        const quote = getLiveQuote(h.symbol);
+        current += (quote ? quote.price : (Number(h.currentPrice) || buy)) * qty;
+        dayPnl += quote ? (quote.change || 0) * qty : (Number(h.dayChangePnl) || 0);
+    });
+    const pnl = current - invested;
+
+    valEl.textContent = `₹${(Math.round(current * 100) / 100).toLocaleString()}`;
+    if (pnlEl) {
+        const n = analyticsLiveHoldings.length;
+        pnlEl.innerHTML = `<span class="${pnl >= 0 ? 'positive' : 'negative'}">${pnl >= 0 ? '+' : '-'}₹${Math.abs(Math.round(pnl * 100) / 100).toLocaleString()}</span>` +
+            ` · <span class="${dayPnl >= 0 ? 'positive' : 'negative'}">${dayPnl >= 0 ? '+' : '-'}₹${Math.abs(Math.round(dayPnl * 100) / 100).toLocaleString()} today</span>` +
+            ` · ${n} stock${n > 1 ? 's' : ''}`;
     }
 }
 

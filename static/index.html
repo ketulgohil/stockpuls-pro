@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StockPulse Pro | Indian Market Analytics</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=4.5">
+    <link rel="stylesheet" href="/static/css/style.css?v=4.6">
     <link rel="manifest" href="/static/manifest.json">
     <meta name="theme-color" content="#0a0a0f">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -294,7 +294,7 @@
                             <div>
                                 <div style="font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px;">Portfolio Holdings</div>
                                 <div id="dashPortfolioVal" style="font-size:20px; font-weight:700; margin-top:4px; color:var(--text-primary);">₹0.00</div>
-                                <div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">Tracked live via Upstox</div>
+                                <div id="dashPortfolioPnl" style="font-size:11px; color:var(--text-secondary); margin-top:2px;">Tracked live via Upstox</div>
                             </div>
                             <button class="btn-secondary" onclick="showTab('portfolio')" style="font-size:12px; padding:6px 12px;">View</button>
                         </div>
@@ -313,6 +313,15 @@
                                 <div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">Real-time Nifty 50 Scanner</div>
                             </div>
                             <button class="btn-secondary" onclick="showTab('screener')" style="font-size:12px; padding:6px 12px;">Screener</button>
+                        </div>
+                    </div>
+
+                    <!-- Dashboard Allocation Donut (#9b) — hidden until holdings exist -->
+                    <div id="dashAllocationCard" class="card mt-2" style="display:none; padding:16px 20px; margin-bottom:20px;">
+                        <h3 style="font-size:16px; font-weight:600;">Portfolio Allocation</h3>
+                        <div style="display:flex; align-items:center; gap:28px; flex-wrap:wrap; margin-top:10px;">
+                            <div id="dashAllocationDonut"></div>
+                            <div id="dashAllocationLegend" style="flex:1; min-width:240px;"></div>
                         </div>
                     </div>
 
@@ -770,6 +779,14 @@
                                     <button class="tf-btn" data-tf="30m" role="radio" aria-checked="false" onclick="setChartTimeframe('30m', this)">30M</button>
                                     <button class="tf-btn" data-tf="1h" role="radio" aria-checked="false" onclick="setChartTimeframe('1h', this)">1H</button>
                                 </div>
+
+                                <!-- Indicators Picker Action -->
+                                <button class="btn-secondary btn-indicators-picker" onclick="ChartIndicatorPicker.openPicker()" title="Indicators & Strategies (I)" style="display: flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600; border-radius: 6px; cursor: pointer; background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary); transition: all 0.2s;">
+                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                                    </svg>
+                                    <span>Indicators</span>
+                                </button>
                             </div>
 
                             <!-- Telemetry & Strategy Bar -->
@@ -2000,9 +2017,32 @@
                             <button class="btn-primary" onclick="addPortfolio()">Add Holding</button>
                         </div>
                     </div>
+                    <div id="portfolioSummaryBar" class="card" style="display:none; margin-top:16px; padding:12px 16px; font-size:13px;"></div>
                     <div id="portfolioTable" class="card mt-2">
                         <div class="card-body">
                             <p class="placeholder">No holdings yet</p>
+                        </div>
+                    </div>
+                    <div id="tradeHistoryCard" class="card mt-2" style="display:none;">
+                        <div class="card-header">
+                            <h3>Trade History</h3>
+                        </div>
+                        <div id="tradeHistoryTable" class="card-body"></div>
+                    </div>
+                    <div id="dividendCard" class="card mt-2" style="display:none;">
+                        <div class="card-header">
+                            <h3>Dividends &amp; Corporate Actions</h3>
+                        </div>
+                        <div id="dividendBody" class="card-body"></div>
+                    </div>
+                    <div id="benchmarkCard" class="card mt-2" style="display:none;">
+                        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+                            <h3>Benchmark — Portfolio vs NIFTY 50</h3>
+                            <div id="benchmarkPeriods" style="display:flex; gap:6px;"></div>
+                        </div>
+                        <div class="card-body">
+                            <div id="benchmarkSummary" style="font-size:13px; margin-bottom:10px;"></div>
+                            <div id="benchmarkChart" style="width:100%;"></div>
                         </div>
                     </div>
                 </div>
@@ -2980,8 +3020,9 @@
 <script src="/static/js/chart/chart-controller.js?v=1.0"></script>
 <script src="/static/js/chart/symbol-search.js?v=1.0"></script>
 <script src="/static/js/chart/indicator-registry.js?v=1.0"></script>
+<script src="/static/js/chart/indicator-picker.js?v=1.0"></script>
 <script src="/static/js/chart/chart-toolbar.js?v=1.0"></script>
 <script src="/static/js/chart/crosshair-legend.js?v=1.0"></script>
-<script src="/static/js/app.js?v=4.6"></script>
+<script src="/static/js/app.js?v=4.14"></script>
 </body>
 </html>

@@ -87,6 +87,7 @@ app.include_router(screener_strategies.router)
 app.include_router(downstox.router)
 app.include_router(sentinel.router)
 app.include_router(upstox_trading.router)
+app.include_router(upstox_trading.ws_router)
 app.include_router(auth.router)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")

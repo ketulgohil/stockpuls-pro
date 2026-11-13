@@ -137,10 +137,20 @@ async def run_intraday_backtest(req: BacktestApiRequest):
     result = backtester.run_orb_backtest(clean_sym, candles)
     return result
 
-# WebSocket Route for real-time Upstox feed
-@router.websocket("/live")
+# WebSocket Route for real-time Upstox feed.
+# Registered on a prefix-less router so the browser connects to /ws/upstox/live
+# (the /api/upstox prefix above would otherwise prepend to the WS path).
+ws_router = APIRouter()
+
+@ws_router.websocket("/ws/upstox/live")
 async def websocket_upstox_live(websocket: WebSocket):
     await websocket.accept()
+
+    # Greet with engine state + a full snapshot so the desk renders instantly.
+    try:
+        await websocket.send_json(upstox_engine.hello_payload())
+    except Exception:
+        pass
 
     async def on_market_update(data):
         try:
@@ -151,8 +161,10 @@ async def websocket_upstox_live(websocket: WebSocket):
     upstox_engine.subscribe(on_market_update)
     try:
         while True:
-            await websocket.receive_text() # Keep connection alive
+            await websocket.receive_text()  # Keep connection alive
     except WebSocketDisconnect:
-        upstox_engine.unsubscribe(on_market_update)
+        pass
     except Exception:
+        pass
+    finally:
         upstox_engine.unsubscribe(on_market_update)

@@ -65,14 +65,70 @@ class UpstoxMarketEngine:
                 quotes = await self.client.get_quotes(self.symbols)
                 if quotes:
                     now = datetime.now()
-                    self._quotes = quotes
+                    # Keep the full client quote (vwap, change, ohlc...) but
+                    # keyed by the clean symbol, so one entry per symbol.
+                    merged = {}
                     for sym, q in quotes.items():
+                        clean = sym.upper().replace(".NS", "").replace(".BO", "").strip()
+                        merged[clean] = q
+                    self._quotes = merged
+                    for sym, q in merged.items():
                         ltp = q.get("last_price", 0.0)
                         vol = q.get("volume", 0)
                         if ltp > 0:
                             self.record_tick(sym, ltp, vol, now)
+                    # Push the fresh batch to every WebSocket subscriber.
+                    await self.broadcast(self._broadcast_payload())
         except Exception as e:
             logger.error(f"Error in Upstox poll_once: {e}")
+
+    def _compact_quotes(self) -> dict:
+        """Lightweight per-symbol snapshot for WebSocket clients (no depth)."""
+        compact = {}
+        for sym, q in self._quotes.items():
+            try:
+                ltp = float(q.get("last_price", 0) or 0)
+            except (TypeError, ValueError):
+                ltp = 0.0
+            if ltp <= 0:
+                continue
+            def _f(key):
+                try:
+                    return float(q.get(key, 0) or 0)
+                except (TypeError, ValueError):
+                    return 0.0
+            try:
+                vol = int(q.get("volume", 0) or 0)
+            except (TypeError, ValueError):
+                vol = 0
+            compact[sym] = {
+                "ltp": ltp,
+                "change": _f("net_change"),
+                "change_pct": _f("change_percent"),
+                "vwap": _f("vwap"),
+                "volume": vol,
+                "open": _f("open"),
+                "high": _f("high"),
+                "low": _f("low"),
+            }
+        return compact
+
+    def _broadcast_payload(self) -> dict:
+        return {
+            "type": "quotes",
+            "ts": datetime.now().isoformat(),
+            "quotes": self._compact_quotes(),
+        }
+
+    def hello_payload(self) -> dict:
+        """First message sent to every new WebSocket client."""
+        return {
+            "type": "hello",
+            "engine_running": self.is_running,
+            "authenticated": bool(getattr(self.client, "is_authenticated", False)),
+            "ts": datetime.now().isoformat(),
+            "quotes": self._compact_quotes(),
+        }
 
     async def _poll_loop(self):
         while self._running:
@@ -100,13 +156,18 @@ class UpstoxMarketEngine:
     def record_tick(self, symbol: str, price: float, volume: int, timestamp: datetime):
         clean_sym = symbol.upper().replace(".NS", "").replace(".BO", "").strip()
 
-        # Update quote cache
-        self._quotes[clean_sym] = {
-            "symbol": clean_sym,
-            "last_price": price,
-            "volume": volume,
-            "timestamp": timestamp.isoformat()
-        }
+        # Update quote cache — merge into the existing full quote (vwap,
+        # change %, ohlc) instead of replacing it with a minimal dict.
+        existing = self._quotes.get(clean_sym)
+        if isinstance(existing, dict):
+            existing.update({"last_price": price, "volume": volume, "timestamp": timestamp.isoformat()})
+        else:
+            self._quotes[clean_sym] = {
+                "symbol": clean_sym,
+                "last_price": price,
+                "volume": volume,
+                "timestamp": timestamp.isoformat()
+            }
 
         # 1. Store tick
         if clean_sym not in self._ticks:

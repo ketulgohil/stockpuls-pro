@@ -2021,6 +2021,7 @@ async function loadPortfolio() {
                             <td class="${(h.dayChangePnl || 0) >= 0 ? 'positive' : 'negative'}" data-live-daypnl>${(h.dayChangePnl || 0) >= 0 ? '+' : '-'}₹${Math.abs(h.dayChangePnl || 0).toFixed(2)}</td>
                             <td class="${(h.pnl || 0) >= 0 ? 'positive' : 'negative'}" data-live-pnl>${(h.pnl || 0) >= 0 ? '+' : '-'}₹${Math.abs(h.pnl || 0).toFixed(2)} (${(h.pnlPercent || 0) >= 0 ? '+' : ''}${(h.pnlPercent || 0).toFixed(2)}%)</td>
                             <td>
+                                <button class="btn-secondary" style="padding:4px 10px; font-size:12px;" onclick="selectStock('${h.symbol}'); showTab('chart')" title="Open live chart">Chart</button>
                                 <button class="btn-secondary" style="padding:4px 10px; font-size:12px;" onclick="toggleSellRow('${h.symbol}', ${h.quantity}, ${h.currentPrice || h.buyPrice})">Sell</button>
                                 <button class="btn-danger" onclick="removePortfolio('${h.symbol}')">Remove</button>
                             </td>
@@ -4136,21 +4137,26 @@ async function loadMarketStatusBanner() {
 let analyticsLiveHoldings = [];
 
 async function loadPortfolioAnalytics() {
+    const topEl = document.getElementById('portfolioAnalyticsTop');
     const container = document.getElementById('portfolioAnalytics');
-    container.innerHTML = '<p class="placeholder">Loading analytics...</p>';
+    if (!container) return;
+    if (topEl) topEl.innerHTML = '<p class="placeholder">Loading analytics...</p>';
+    container.innerHTML = '';
 
     const data = await api('/api/analytics/portfolio');
 
     if (data.error) {
         analyticsLiveHoldings = [];
-        container.innerHTML = `<p class="placeholder">${data.error}</p>`;
+        if (topEl) topEl.innerHTML = `<p class="placeholder">${data.error}</p>`;
+        container.innerHTML = '';
         return;
     }
 
     const summary = data.summary;
     analyticsLiveHoldings = data.holdings || [];
 
-    container.innerHTML = `
+    // Summary strip lives at the top of the tab (above the holdings table).
+    if (topEl) topEl.innerHTML = `
         <div class="analytics-summary">
             <div class="analytics-card">
                 <span class="label">Invested</span>
@@ -4172,9 +4178,11 @@ async function loadPortfolioAnalytics() {
                 <span class="label">Return</span>
                 <span class="value ${summary.totalReturn >= 0 ? 'positive' : 'negative'}" data-live-total-return>${summary.totalReturn >= 0 ? '+' : ''}${summary.totalReturn}%</span>
             </div>
-        </div>
+        </div>`;
 
-        <div class="grid-2 mt-2">
+    // Detail (sector allocation, performers, donut) stays below the holdings.
+    container.innerHTML = `
+        <div class="grid-2">
             <div class="sector-allocation">
                 <h4>Sector Allocation</h4>
                 <div class="allocation-bars">
@@ -4225,8 +4233,7 @@ async function loadPortfolioAnalytics() {
 // Recompute the Analytics summary + performer rows from liveQuoteCache so the
 // Analytics section always matches the live P&L in the holdings table.
 function updateAnalyticsLive() {
-    const container = document.getElementById('portfolioAnalytics');
-    if (!container || !analyticsLiveHoldings.length) return;
+    if (!analyticsLiveHoldings.length) return;
 
     let invested = 0;
     let current = 0;
@@ -4245,24 +4252,24 @@ function updateAnalyticsLive() {
     const pnl = current - invested;
     const ret = invested > 0 ? (pnl / invested) * 100 : 0;
 
-    const cvEl = container.querySelector('[data-live-current-value]');
+    const cvEl = document.querySelector('[data-live-current-value]');
     if (cvEl) cvEl.textContent = `₹${(Math.round(current * 100) / 100).toLocaleString()}`;
 
-    const pnlEl = container.querySelector('[data-live-total-pnl]');
+    const pnlEl = document.querySelector('[data-live-total-pnl]');
     if (pnlEl) {
         pnlEl.textContent = `${pnl >= 0 ? '+' : ''}₹${(Math.round(pnl * 100) / 100).toLocaleString()}`;
         pnlEl.classList.toggle('positive', pnl >= 0);
         pnlEl.classList.toggle('negative', pnl < 0);
     }
 
-    const retEl = container.querySelector('[data-live-total-return]');
+    const retEl = document.querySelector('[data-live-total-return]');
     if (retEl) {
         retEl.textContent = `${ret >= 0 ? '+' : ''}${ret.toFixed(2)}%`;
         retEl.classList.toggle('positive', ret >= 0);
         retEl.classList.toggle('negative', ret < 0);
     }
 
-    const dayEl = container.querySelector('[data-live-day-pnl]');
+    const dayEl = document.querySelector('[data-live-day-pnl]');
     if (dayEl) {
         let day = 0;
         analyticsLiveHoldings.forEach(h => {
@@ -4275,7 +4282,7 @@ function updateAnalyticsLive() {
         dayEl.classList.toggle('negative', day < 0);
     }
 
-    container.querySelectorAll('[data-perf-symbol]').forEach(el => {
+    document.querySelectorAll('[data-perf-symbol]').forEach(el => {
         const pct = pctBySymbol[el.getAttribute('data-perf-symbol')];
         if (!Number.isFinite(pct)) return;
         const span = el.querySelector('span:last-child');
@@ -8131,85 +8138,338 @@ function tdRenderEntryWatch() {
     refreshLiveSubscriptions();
 }
 
+// ===== UPSTOX INTRADAY DESK ENGINE (v2) =====
+// Live feed: /ws/upstox/live sends a hello snapshot, then one compact quote
+// batch per engine poll. Resilience: exponential-backoff reconnects, and a
+// REST polling fallback after 5 failed attempts so the desk is never dead.
 const UpstoxDesk = {
     ws: null,
-    reconnectInterval: 5000,
+    wsAttempts: 0,
+    wsTimer: null,
+    fallbackTimer: null,
     lastPrices: {},
     audioCtx: null,
+    quotes: {},          // compact quote per clean symbol
+    rows: {},            // symbol -> <tr> for in-place batch updates
+    sortKey: 'change_pct',
+    sortDir: -1,
+    filter: '',
+    positions: [],
+    kpiTimer: null,
+    clockTimer: null,
+    _inited: false,
+    _statusText: '',
 
     async init() {
+        this.startClock();
+        if (this._inited) {
+            this.connectWebSocket();   // idempotent — no-op if open/connecting
+            await this.updateKPIs();
+            return;
+        }
+        this._inited = true;
+        this.renderScannerShell();
+        this.setStatus('connecting', 'Connecting…');
         this.connectWebSocket();
         await this.updateKPIs();
         await this.loadORB();
         await this.loadSignals();
-        await this.updatePaperPortfolio();
+        this.kpiTimer = setInterval(() => this.updateKPIs(), 10000);
     },
 
-    connectWebSocket() {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws/upstox/live`;
-
-        this.ws = new WebSocket(wsUrl);
-
-        this.ws.onopen = () => {
-            console.log('Upstox WebSocket Connected');
-            document.getElementById('upstoxEngineStatus').textContent = 'Active';
-            document.getElementById('upstoxEngineStatus').className = 'kpi-badge positive';
-        };
-
-        this.ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            this.handleMarketUpdate(data);
-        };
-
-        this.ws.onclose = () => {
-            document.getElementById('upstoxEngineStatus').textContent = 'Reconnecting...';
-            document.getElementById('upstoxEngineStatus').className = 'kpi-badge negative';
-            setTimeout(() => this.connectWebSocket(), this.reconnectInterval);
-        };
-
-        this.ws.onerror = (err) => {
-            console.error('Upstox WebSocket Error:', err);
-        };
-    },
-
-    handleMarketUpdate(data) {
-        if (data.symbol && data.last_price) {
-            const symbol = data.symbol;
-            const price = data.last_price;
-            const prevPrice = this.lastPrices[symbol];
-
-            this.lastPrices[symbol] = price;
-
-            // Update Scanner Matrix
-            const row = document.querySelector(`#upstoxScannerMatrix tr[data-symbol="${symbol}"]`);
-            if (row) {
-                const priceCell = row.querySelector('.ltp-cell');
-                if (priceCell) {
-                    priceCell.textContent = price.toFixed(2);
-                    const flashClass = price > prevPrice ? 'flash-green' : price < prevPrice ? 'flash-red' : '';
-                    priceCell.classList.remove('flash-green', 'flash-red');
-                    if (flashClass) {
-                        void priceCell.offsetWidth; // Trigger reflow
-                        priceCell.classList.add(flashClass);
-                    }
-                }
-                // Update other cells if provided in data
-                if (data.change_percent) {
-                    const chgCell = row.querySelector('.chg-cell');
-                    if (chgCell) chgCell.textContent = `${data.change_percent > 0 ? '+' : ''}${data.change_percent.toFixed(2)}%`;
-                }
-            }
+    setStatus(state, text) {
+        const label = text || state.toUpperCase();
+        if (label === this._statusText) return;
+        this._statusText = label;
+        const el = document.getElementById('upstoxLiveStatus');
+        if (el) {
+            el.className = 'upx-status upx-status--' + state;
+            el.innerHTML = `<span class="upx-dot"></span>${escapeHtml(label)}`;
         }
     },
 
+    connectWebSocket() {
+        if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) return;
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        try {
+            this.ws = new WebSocket(`${protocol}//${window.location.host}/ws/upstox/live`);
+        } catch (e) {
+            this.scheduleReconnect();
+            return;
+        }
+        this.ws.onopen = () => {
+            this.wsAttempts = 0;
+            this.stopFallback();
+            this.setStatus('live', 'LIVE');
+        };
+        this.ws.onmessage = (event) => {
+            try { this.handleMessage(JSON.parse(event.data)); } catch (e) { /* ignore bad frames */ }
+        };
+        this.ws.onclose = () => this.scheduleReconnect();
+        this.ws.onerror = () => { try { this.ws.close(); } catch (e) { /* already closing */ } };
+    },
+
+    scheduleReconnect() {
+        this.wsAttempts++;
+        if (this.wsAttempts >= 5) this.startFallback();
+        const delay = Math.min(15000, Math.round(1000 * Math.pow(1.6, Math.min(this.wsAttempts, 6))) + Math.floor(Math.random() * 400));
+        this.setStatus(this.wsAttempts >= 5 ? 'fallback' : 'connecting',
+            this.wsAttempts >= 5 ? `POLLING · WS RETRY ${this.wsAttempts}` : `RECONNECTING · ${this.wsAttempts}`);
+        if (this.wsTimer) return;
+        this.wsTimer = setTimeout(() => { this.wsTimer = null; this.connectWebSocket(); }, delay);
+    },
+
+    // REST polling keeps the scanner alive even when the WebSocket can't connect.
+    startFallback() {
+        if (this.fallbackTimer) return;
+        this.fallbackTimer = setInterval(async () => {
+            try {
+                const data = await api('/api/upstox/quotes');
+                const norm = this._normalizeQuotes((data && data.quotes) || {});
+                if (Object.keys(norm).length) this.applyQuotes(norm, false);
+            } catch (e) { /* keep retrying */ }
+        }, 5000);
+    },
+
+    stopFallback() {
+        if (this.fallbackTimer) { clearInterval(this.fallbackTimer); this.fallbackTimer = null; }
+    },
+
+    _normalizeQuotes(raw) {
+        const norm = {};
+        Object.entries(raw || {}).forEach(([sym, item]) => {
+            const ltp = Number(item.last_price) || 0;
+            if (ltp <= 0) return;
+            norm[sym.replace('.NS', '').replace('.BO', '')] = {
+                ltp,
+                change: Number(item.net_change) || 0,
+                change_pct: Number(item.change_percent) || 0,
+                vwap: Number(item.vwap) || 0,
+                volume: Number(item.volume) || 0,
+                open: Number(item.open) || 0,
+                high: Number(item.high) || 0,
+                low: Number(item.low) || 0
+            };
+        });
+        return norm;
+    },
+
+    handleMessage(msg) {
+        if (!msg || typeof msg !== 'object') return;
+        if (msg.type === 'hello') {
+            this.setStatus(msg.engine_running === false ? 'idle' : 'live',
+                msg.engine_running === false ? 'ENGINE STOPPED' : 'LIVE');
+            this.quotes = msg.quotes || {};
+            this.renderScanner();
+            this.updatePaperLtp();
+        } else if (msg.type === 'quotes') {
+            this.setStatus('live', 'LIVE');
+            this.applyQuotes(msg.quotes || {}, true);
+        }
+    },
+
+    applyQuotes(batch, flash) {
+        Object.entries(batch).forEach(([sym, q]) => {
+            const prev = this.quotes[sym];
+            q.vwap_diff = q.vwap > 0 ? ((q.ltp - q.vwap) / q.vwap) * 100 : 0;
+            this.quotes[sym] = q;
+            this.updateRow(sym, q, prev, flash);
+        });
+        this.updateTickClock();
+        this.updatePaperLtp();
+    },
+
+    updateRow(sym, q, prev, flash) {
+        const row = this.rows[sym];
+        if (!row) return;
+        const ltpEl = row.querySelector('.upx-ltp');
+        if (ltpEl) {
+            ltpEl.textContent = fmtPrice(q.ltp);
+            const p = prev ? prev.ltp : this.lastPrices[sym];
+            if (flash && Number.isFinite(p) && q.ltp !== p) {
+                ltpEl.classList.remove('flash-green', 'flash-red');
+                void ltpEl.offsetWidth; // restart animation
+                ltpEl.classList.add(q.ltp > p ? 'flash-green' : 'flash-red');
+            }
+        }
+        const chgEl = row.querySelector('.upx-chg');
+        if (chgEl) {
+            const pct = q.change_pct || 0;
+            chgEl.textContent = `${pct > 0 ? '▲' : pct < 0 ? '▼' : ''} ${Math.abs(pct).toFixed(2)}%`;
+            chgEl.className = 'upx-chg ' + (pct >= 0 ? 'upx-up' : 'upx-down');
+        }
+        const vwapEl = row.querySelector('.upx-vwapdiff');
+        if (vwapEl) {
+            vwapEl.textContent = `${q.vwap_diff >= 0 ? '+' : ''}${q.vwap_diff.toFixed(2)}%`;
+            vwapEl.className = 'upx-vwapdiff ' + (q.vwap_diff >= 0 ? 'upx-up' : 'upx-down');
+        }
+        const volEl = row.querySelector('.upx-vol');
+        if (volEl) volEl.textContent = fmtVol(q.volume);
+        const stEl = row.querySelector('.upx-statuschip');
+        if (stEl) {
+            const above = q.vwap > 0 && q.ltp >= q.vwap;
+            stEl.textContent = q.vwap > 0 ? (above ? 'Above VWAP' : 'Below VWAP') : '—';
+            stEl.className = 'upx-statuschip ' + (q.vwap > 0 ? (above ? 'upx-chip-up' : 'upx-chip-down') : 'upx-chip-muted');
+        }
+        this.lastPrices[sym] = q.ltp;
+    },
+
+    renderScannerShell() {
+        const tbody = document.querySelector('#upstoxScannerMatrix tbody');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="placeholder">Waiting for the first quote batch…</td></tr>';
+    },
+
+    renderScanner() {
+        const tbody = document.querySelector('#upstoxScannerMatrix tbody');
+        if (!tbody) return;
+        const entries = Object.entries(this.quotes)
+            .filter(([sym]) => !this.filter || sym.includes(this.filter));
+        this.updateScanCount(entries.length);
+        if (!entries.length) {
+            tbody.innerHTML = `<tr><td colspan="6" class="placeholder">${this.filter ? 'No symbols match "' + escapeHtml(this.filter) + '"' : 'Waiting for live quotes…'}</td></tr>`;
+            this.rows = {};
+            return;
+        }
+        const key = this.sortKey, dir = this.sortDir;
+        entries.sort((a, b) => {
+            if (key === 'sym') return a[0].localeCompare(b[0]) * dir;
+            return (((a[1][key] || 0)) - ((b[1][key] || 0))) * dir;
+        });
+        this.rows = {};
+        tbody.innerHTML = entries.map(([sym, q]) => {
+            const pct = q.change_pct || 0;
+            const diff = q.vwap_diff || 0;
+            const above = q.vwap > 0 && q.ltp >= q.vwap;
+            return `<tr data-symbol="${sym}">
+                <td><a href="#" class="upx-symbol" onclick="openStockChart('${sym}'); return false;">${sym}</a></td>
+                <td class="upx-ltp">${fmtPrice(q.ltp)}</td>
+                <td class="upx-chg ${pct >= 0 ? 'upx-up' : 'upx-down'}">${pct > 0 ? '▲' : pct < 0 ? '▼' : ''} ${Math.abs(pct).toFixed(2)}%</td>
+                <td class="upx-vwapdiff ${diff >= 0 ? 'upx-up' : 'upx-down'}">${diff >= 0 ? '+' : ''}${diff.toFixed(2)}%</td>
+                <td class="upx-vol">${fmtVol(q.volume)}</td>
+                <td><span class="upx-statuschip ${q.vwap > 0 ? (above ? 'upx-chip-up' : 'upx-chip-down') : 'upx-chip-muted'}">${q.vwap > 0 ? (above ? 'Above VWAP' : 'Below VWAP') : '—'}</span></td>
+            </tr>`;
+        }).join('');
+        entries.forEach(([sym]) => {
+            this.rows[sym] = tbody.querySelector(`tr[data-symbol="${sym}"]`);
+        });
+    },
+
+    updateScanCount(n) {
+        const el = document.getElementById('upstoxScanCount');
+        if (el) el.textContent = `${n} live`;
+    },
+
+    setSort(key) {
+        if (this.sortKey === key) this.sortDir *= -1;
+        else { this.sortKey = key; this.sortDir = key === 'sym' ? 1 : -1; }
+        document.querySelectorAll('#upstoxScannerMatrix th[data-sort]').forEach(th => {
+            const active = th.dataset.sort === this.sortKey;
+            th.classList.toggle('upx-sorted', active);
+            const arrow = th.querySelector('.upx-arrow');
+            if (arrow) arrow.textContent = active ? (this.sortDir === 1 ? '↑' : '↓') : '';
+        });
+        this.renderScanner();
+    },
+
+    setFilter(v) {
+        this.filter = (v || '').toUpperCase().trim();
+        this.renderScanner();
+    },
+
+    updateTickClock() {
+        const el = document.getElementById('upstoxLastTick');
+        if (el) {
+            el.textContent = 'Tick ' + new Intl.DateTimeFormat('en-GB', {
+                timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+            }).format(new Date());
+        }
+    },
+
+    startClock() {
+        if (this.clockTimer) return;
+        const tick = () => {
+            const el = document.getElementById('upstoxClock');
+            if (el) {
+                el.textContent = new Intl.DateTimeFormat('en-GB', {
+                    timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+                }).format(new Date()) + ' IST';
+            }
+        };
+        tick();
+        this.clockTimer = setInterval(tick, 1000);
+    },
+
     async updateKPIs() {
-        const data = await api('/api/upstox/paper/portfolio');
-        document.getElementById('upstoxCash').textContent = `₹${data.cash.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
-        document.getElementById('upstoxMtm').textContent = `₹${data.mtm.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
-        document.getElementById('upstoxMtm').className = `kpi-value ${data.mtm >= 0 ? 'positive' : 'negative'}`;
-        document.getElementById('upstoxOpenPos').textContent = data.positions.length;
-        document.getElementById('upstoxRealized').textContent = `₹${data.realized_pnl.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+        try {
+            const data = await api('/api/upstox/paper/portfolio');
+            this.positions = data.positions || [];
+            const cash = Number(data.cash) || 0;
+            const mtm = Number(data.mtm) || 0;
+            const realized = Number(data.realized_pnl) || 0;
+            const cashEl = document.getElementById('upstoxCash');
+            if (cashEl) cashEl.textContent = '₹' + cash.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+            const mtmEl = document.getElementById('upstoxMtm');
+            if (mtmEl) {
+                mtmEl.textContent = `${mtm >= 0 ? '+' : '-'}₹${Math.abs(mtm).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                mtmEl.className = 'upx-kpi-value ' + (mtm >= 0 ? 'upx-up' : 'upx-down');
+            }
+            const posEl = document.getElementById('upstoxOpenPos');
+            if (posEl) posEl.textContent = String(this.positions.length);
+            const rEl = document.getElementById('upstoxRealized');
+            if (rEl) {
+                rEl.textContent = `${realized >= 0 ? '+' : '-'}₹${Math.abs(realized).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+                rEl.className = 'upx-kpi-value ' + (realized >= 0 ? 'upx-up' : 'upx-down');
+            }
+            this.renderPositions();
+        } catch (e) { /* endpoint may be briefly unavailable */ }
+    },
+
+    renderPositions() {
+        const tbody = document.querySelector('#paperPositionsTable tbody');
+        if (!tbody) return;
+        if (!this.positions.length) {
+            tbody.innerHTML = '<tr><td colspan="6" class="placeholder">No open positions</td></tr>';
+            return;
+        }
+        tbody.innerHTML = this.positions.map(p => `
+            <tr data-pos-id="${p.position_id}">
+                <td><a href="#" class="upx-symbol" onclick="openStockChart('${p.symbol}'); return false;">${(p.symbol || '').replace('.NS', '')}</a></td>
+                <td>${p.quantity}</td>
+                <td>₹${(p.entry_price || 0).toFixed(2)}</td>
+                <td class="upx-posltp">₹${(p.last_price || p.entry_price || 0).toFixed(2)}</td>
+                <td class="upx-pospnl ${(p.mtm || 0) >= 0 ? 'positive' : 'negative'}">${(p.mtm || 0) >= 0 ? '+' : '-'}₹${Math.abs(p.mtm || 0).toFixed(2)}</td>
+                <td><button class="upx-btn-danger" onclick="squareOffPosition('${p.position_id}')">Square Off</button></td>
+            </tr>`).join('');
+        this.updatePaperLtp();
+    },
+
+    // Live position MTM between server polls, straight from the quote batch.
+    updatePaperLtp() {
+        if (!this.positions.length) return;
+        let mtm = 0;
+        let touched = false;
+        this.positions.forEach(p => {
+            const q = this.quotes[p.symbol] || this.quotes[(p.symbol || '').replace('.NS', '').replace('.BO', '')];
+            if (!q) return;
+            touched = true;
+            const pnl = (q.ltp - (p.entry_price || 0)) * (p.quantity || 0);
+            mtm += pnl;
+            const row = document.querySelector(`#paperPositionsTable tr[data-pos-id="${p.position_id}"]`);
+            if (row) {
+                const ltp = row.querySelector('.upx-posltp');
+                if (ltp) ltp.textContent = '₹' + fmtPrice(q.ltp);
+                const pnlEl = row.querySelector('.upx-pospnl');
+                if (pnlEl) {
+                    pnlEl.textContent = `${pnl >= 0 ? '+' : '-'}₹${Math.abs(pnl).toFixed(2)}`;
+                    pnlEl.className = 'upx-pospnl ' + (pnl >= 0 ? 'positive' : 'negative');
+                }
+            }
+        });
+        const mtmEl = document.getElementById('upstoxMtm');
+        if (mtmEl && touched) {
+            mtmEl.textContent = `${mtm >= 0 ? '+' : '-'}₹${Math.abs(mtm).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            mtmEl.className = 'upx-kpi-value ' + (mtm >= 0 ? 'upx-up' : 'upx-down');
+        }
     },
 
     async loadORB() {
@@ -8221,17 +8481,15 @@ const UpstoxDesk = {
         }
 
         container.innerHTML = data.breakouts.map(b => `
-            <div class="orb-card">
-                <div class="orb-card-header">
-                    <span class="orb-symbol">${b.symbol}</span>
-                    <span class="orb-status-badge ${b.direction === 'UP' ? 'breakout-up' : 'breakout-down'}">
-                        ${b.direction === 'UP' ? 'Bullish Breakout' : 'Bearish Breakout'}
-                    </span>
+            <div class="upx-orb-card ${b.direction === 'UP' ? 'upx-orb-up' : 'upx-orb-down'}">
+                <div class="upx-orb-head">
+                    <span class="upx-orb-symbol">${b.symbol}</span>
+                    <span class="upx-orb-badge">${b.direction === 'UP' ? '▲ Bullish Breakout' : '▼ Bearish Breakout'}</span>
                 </div>
-                <div class="orb-details">
-                    <div class="result-row"><span>Range High:</span> <span>₹${b.range_high}</span></div>
-                    <div class="result-row"><span>Range Low:</span> <span>₹${b.range_low}</span></div>
-                    <div class="result-row"><span>LTP:</span> <span class="positive">₹${b.last_price}</span></div>
+                <div class="upx-orb-rows">
+                    <div><span>Range High</span><b>₹${b.range_high}</b></div>
+                    <div><span>Range Low</span><b>₹${b.range_low}</b></div>
+                    <div><span>LTP</span><b class="${(b.last_price || 0) >= (b.range_high || 0) ? 'upx-up' : 'upx-down'}">₹${b.last_price}</b></div>
                 </div>
             </div>
         `).join('');
@@ -8246,58 +8504,31 @@ const UpstoxDesk = {
         }
 
         container.innerHTML = data.signals.map(s => `
-            <div class="card" style="margin-bottom: 10px; border-left: 4px solid var(--green);">
-                <div class="card-header">
-                    <strong>${s.symbol}</strong>
-                    <span class="badge positive">BUY SIGNAL</span>
+            <div class="upx-signal-card">
+                <div class="upx-signal-head">
+                    <span class="upx-orb-symbol">${s.symbol}</span>
+                    <span class="upx-signal-score">${s.confluence_score}/10</span>
                 </div>
-                <div class="result-row"><span>Confluence:</span> <span>${s.confluence_score}/10</span></div>
-                <div class="result-row"><span>Target:</span> <span class="positive">₹${s.target}</span></div>
-                <div class="result-row"><span>Stop Loss:</span> <span class="negative">₹${s.stop_loss}</span></div>
+                <div class="upx-signal-bar"><div style="width:${Math.min(s.confluence_score * 10, 100)}%"></div></div>
+                <div class="upx-orb-rows">
+                    <div><span>Target</span><b class="upx-up">₹${s.target}</b></div>
+                    <div><span>Stop Loss</span><b class="upx-down">₹${s.stop_loss}</b></div>
+                </div>
+                <button class="upx-btn-buy" onclick="prefillPaperOrder('${s.symbol}', ${s.stop_loss}, ${s.target})">Load in Order Terminal</button>
             </div>
         `).join('');
     },
 
-    async updatePaperPortfolio() {
-        const data = await api('/api/upstox/paper/portfolio');
-        const tbody = document.querySelector('#paperPositionsTable tbody');
-        if (!data.positions || data.positions.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="placeholder">No open positions</td></tr>';
-            return;
-        }
-
-        tbody.innerHTML = data.positions.map(p => `
-            <tr>
-                <td><strong>${p.symbol}</strong></td>
-                <td>${p.quantity}</td>
-                <td>₹${p.entry_price.toFixed(2)}</td>
-                <td class="ltp-cell" data-symbol="${p.symbol}">₹${p.last_price.toFixed(2)}</td>
-                <td class="pnl-cell ${p.mtm >= 0 ? 'positive' : 'negative'}">₹${p.mtm.toFixed(2)}</td>
-                <td><button class="btn-danger" onclick="squareOffPosition('${p.position_id}')">Square Off</button></td>
-            </tr>
-        `).join('');
-    },
-
     async loadScannerMatrix() {
-        const data = await api('/api/upstox/quotes');
-        const tbody = document.querySelector('#upstoxScannerMatrix tbody');
-        if (!data.quotes || Object.keys(data.quotes).length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="placeholder">No quotes available</td></tr>';
-            return;
-        }
-
-        tbody.innerHTML = Object.entries(data.quotes).map(([sym, q]) => `
-            <tr data-symbol="${sym}">
-                <td><strong>${sym}</strong></td>
-                <td class="ltp-cell">₹${(q.last_price || q.currentPrice || 0).toFixed(2)}</td>
-                <td class="chg-cell ${q.change_percent >= 0 ? 'positive' : 'negative'}">
-                    ${q.change_percent > 0 ? '+' : ''}${ (q.change_percent || 0).toFixed(2)}%
-                </td>
-                <td class="vwap-cell">${(q.vwap || 0).toFixed(2)}</td>
-                <td class="vol-cell">${q.volume || 0}</td>
-                <td><span class="badge positive">Live</span></td>
-            </tr>
-        `).join('');
+        try {
+            const data = await api('/api/upstox/quotes');
+            const norm = this._normalizeQuotes((data && data.quotes) || {});
+            if (Object.keys(norm).length) {
+                this.quotes = norm;
+                this.renderScanner();
+                this.updatePaperLtp();
+            }
+        } catch (e) { /* WS hello will fill it shortly */ }
     },
 
     playChime(type) {
@@ -8326,6 +8557,27 @@ const UpstoxDesk = {
     }
 };
 
+// Compact volume formatting for the scanner (no currency marker).
+function fmtVol(v) {
+    if (!Number.isFinite(v) || v <= 0) return '—';
+    if (v >= 1e7) return (v / 1e7).toFixed(2) + ' Cr';
+    if (v >= 1e5) return (v / 1e5).toFixed(2) + ' L';
+    if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+    return String(v);
+}
+
+// Pre-fill the paper order terminal from a signal card.
+function prefillPaperOrder(symbol, stopLoss, target) {
+    showUpstoxSubTab('upstox-paper', document.querySelectorAll('.sub-nav-btn')[3]);
+    const symEl = document.getElementById('paperSymbol');
+    const slEl = document.getElementById('paperSL');
+    const tgEl = document.getElementById('paperTarget');
+    if (symEl) symEl.value = symbol;
+    if (slEl) slEl.value = stopLoss;
+    if (tgEl) tgEl.value = target;
+    showToast(`Signal loaded for ${symbol} — review and buy`, 'info');
+}
+
 async function executePaperOrder() {
     const symbol = document.getElementById('paperSymbol').value.toUpperCase();
     const quantity = parseInt(document.getElementById('paperQty').value);
@@ -8341,7 +8593,6 @@ async function executePaperOrder() {
         });
         showToast(`Buy Order Executed for ${symbol}`, 'success');
         await UpstoxDesk.updateKPIs();
-        await UpstoxDesk.updatePaperPortfolio();
     } catch (e) {
         showToast(e.detail || 'Order failed', 'error');
     } finally {
@@ -8357,7 +8608,6 @@ async function squareOffPosition(positionId) {
         await api(`/api/upstox/paper/close/${positionId}`, 'POST', { reason: 'MANUAL' });
         showToast('Position Squared Off', 'success');
         await UpstoxDesk.updateKPIs();
-        await UpstoxDesk.updatePaperPortfolio();
     } catch (e) {
         showToast(e.detail || 'Close failed', 'error');
     } finally {

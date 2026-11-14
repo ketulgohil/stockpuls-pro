@@ -592,12 +592,17 @@ function clearChartOverlayChart() {
 // re-fetched and re-sorted on every load, so a saved range can point outside
 // the new data and render an empty chart. If a persistent zoom is ever added,
 // clamp the saved range against the freshly loaded data before applying it.
+// Keys MUST match the data-tf values on the timeframe buttons in
+// static/index.html (1d, 5d, 1mo, 3m, 6m, 1y, 5m, 15m, 30m, 1h).
+// A key missing here silently falls back to the 1d mapping below.
 const TIMEFRAME_CONFIG = {
     '1d':   { period: '1y', interval: '1d' },   // 1 year of daily candles
     '5d':   { period: '1y', interval: '1d' },   // 1 year of daily candles
     '1mo':  { period: '2y', interval: '1mo' },  // 2 years of monthly candles
-    '3mo':  { period: '2y', interval: '1mo' },  // 2 years of monthly candles
-    '6mo':  { period: '2y', interval: '1mo' },  // 2 years of monthly candles
+    '3mo':  { period: '3mo', interval: '1d' },  // 3 months of daily candles (legacy key)
+    '3m':   { period: '3mo', interval: '1d' },  // 3M button: 3 months of daily candles
+    '6mo':  { period: '6mo', interval: '1d' },  // 6 months of daily candles (legacy key)
+    '6m':   { period: '6mo', interval: '1d' },  // 6M button: 6 months of daily candles
     '1y':   { period: '5y', interval: '1mo' },  // 5 years of monthly candles
     '5m':   { period: '1d', interval: '5m' },   // 1 day of 5-min candles
     '15m':  { period: '1d', interval: '15m' },  // 1 day of 15-min candles
@@ -960,19 +965,13 @@ function setChartTimeframe(tf, btn) {
     document.querySelectorAll('#chart .tf-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
 
-    // Save current visible range before loading new timeframe
-    if (window.chartController) {
-        window.chartController.saveVisibleRange();
-    }
+    // Visible-range policy: every load ends with fitContent() (see
+    // TIMEFRAME_CONFIG). Do NOT save/restore the viewport range across
+    // timeframe changes — a range saved for the previous candle set can point
+    // beyond the new data (e.g. a daily range applied to monthly bars),
+    // leaving the viewport empty = blank chart.
 
     loadChartChart(currentSymbol);
-
-    // Restore visible range after loading (with a small delay to let data load)
-    setTimeout(() => {
-        if (window.chartController) {
-            window.chartController.restoreVisibleRange();
-        }
-    }, 100);
 
     // Save timeframe to chart state (Phase 5)
     if (window.ChartState) {

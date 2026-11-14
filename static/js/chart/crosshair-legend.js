@@ -592,11 +592,19 @@ const ChartCrosshairLegend = {
         const timeScale = this.chart.timeScale();
         const currentRange = timeScale.getVisibleLogicalRange();
 
-        // Only restore if we have a saved range and the chart has data
-        if (this.visibleLogicalRange && currentRange) {
-            // Check if the saved range is valid for current data
-            timeScale.setVisibleLogicalRange(this.visibleLogicalRange);
+        if (!this.visibleLogicalRange || !currentRange) return;
+
+        // Guard against stale ranges: a saved {from,to} measured against a
+        // previous candle set (different symbol/timeframe/history length) can
+        // sit entirely beyond the current data, leaving the viewport empty
+        // (blank chart). Only restore if it overlaps the current data length.
+        const dataLength = this.chartController?.currentCandles?.length || 0;
+        const range = this.visibleLogicalRange;
+        if (dataLength > 0 && (range.from > dataLength || range.to < 0)) {
+            return;
         }
+
+        timeScale.setVisibleLogicalRange(range);
     },
 
     /**

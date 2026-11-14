@@ -78,9 +78,9 @@ Most symbol-specific controls carry `data-chart-symbol="SYMBOL"` and open the ch
 
 ### Phase 3 — Timeframes, visible range, and overlays
 
-- [x] Verify each timeframe label maps to the intended provider interval and requested history window. (`TIMEFRAME_CONFIG` L780+ — every label now has an explicit, commented mapping; note 1mo/3mo/6mo intentionally use monthly candles)
-- [x] Document whether timeframe changes preserve the visible range or fit all available data; implement that behavior consistently. (Policy documented in code above `TIMEFRAME_CONFIG` L595: every load always ends with `fitContent()`; rationale — re-fetched/re-sorted candles invalidate a persisted range)
-- [x] Confirm a new symbol intentionally resets or restores the visible range according to the product decision. (Resets to fit-all per the documented policy)
+- [x] Verify each timeframe label maps to the intended provider interval and requested history window. (`TIMEFRAME_CONFIG` L598 — keys now match the DOM `data-tf` values incl. `3m`/`6m` mapped to real 3/6-month daily windows; `3mo`/`6mo` kept as legacy aliases. Previously the 3M/6M buttons silently fell back to the 1y-daily mapping.)
+- [x] Document whether timeframe changes preserve the visible range or fit all available data; implement that behavior consistently. (Policy documented above `TIMEFRAME_CONFIG` L598: every load ends with `fitContent()`. **Fix 2026-11-14:** `setChartTimeframe` used to save the viewport range and blindly restore it 100ms later — a range measured against the previous candle set can sit entirely beyond the new data (e.g. a daily range applied to monthly bars), which rendered an **empty viewport / blank chart** on timeframe switches and tab re-opens. The save/restore around timeframe changes was removed.)
+- [x] Confirm a new symbol intentionally resets or restores the visible range according to the product decision. (Resets to fit-all per the documented policy; `ChartCrosshairLegend.restoreVisibleRange` is now bounds-guarded against stale ranges as defense-in-depth.)
 - [x] Verify active timeframe state matches the response that actually rendered. (request-ID guarded; `ChartState.resolution` saved only after render L964–965)
 - [x] Test rapid timeframe changes while requests are pending. (covered by the request-ID latest-wins system; each pending response aborts before rendering)
 - [x] Clear or recompute EMA, VWAP, pivots, ORB levels, pattern markers, oscillator data, and strategy lines on every symbol/timeframe change. (`updateIndicators` recomputes from the new candle set each render — chart-controller.js L299–326; live daily candle re-marked per load)
@@ -163,7 +163,7 @@ Before using it as an implementation checklist, make these adjustments:
 | 0 — entry points | ✅ Implemented (`openChart` single entry, idempotent init, request IDs, symbol normalization, delegated `data-chart-symbol` handler) |
 | 1 — request lifecycle | ✅ Implemented (latest-wins, error states, cleanup, HTML-escaped overlays) |
 | 2 — sizing & validation | ✅ Implemented (candle validation, dimension polling, live-daily upsert, stored + disconnected ResizeObserver) |
-| 3 — timeframes & overlays | ✅ Implemented (mappings + visible-range policy documented; always `fitContent()`) |
+| 3 — timeframes & overlays | ✅ Implemented (mappings fixed for 3M/6M; visible-range policy enforced — stale-range restore removed + bounds guard; fixes blank chart on timeframe switch / tab re-open) |
 | 4 — live data | ✅ Implemented (per-symbol subs, tick freshness, market status) |
 | 5 — saved state | ✅ Code-complete (whitelist-validated restore, keyboard nav for search; manual UI checks remain) |
 | 6 — regression scenarios | ⬜ Open — manual UI verification |

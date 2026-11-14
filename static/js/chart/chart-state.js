@@ -3,9 +3,20 @@
  */
 // Allowed values for persisted fields. Anything outside these is discarded
 // (falls back to the current/default value) instead of being assigned.
-const CHART_STATE_RESOLUTIONS = ['1d', '5d', '1mo', '3mo', '6mo', '1y', '5m', '15m', '30m', '1h'];
+// Resolution keys MUST match the data-tf values on the timeframe buttons in
+// static/index.html (1d, 5d, 1mo, 3m, 6m, 1y, 5m, 15m, 30m, 1h).
+const CHART_STATE_RESOLUTIONS = ['1d', '5d', '1mo', '3m', '6m', '1y', '5m', '15m', '30m', '1h'];
 const CHART_STATE_CHART_TYPES = ['candles', 'line', 'area', 'bars', 'heikin-ashi'];
 const CHART_STATE_SYMBOL_RE = /^[A-Z0-9&\-^]{1,20}(\.(NS|BO))?$/;
+
+// A persisted visible range is {from, to} fractional indices — both finite
+// numbers. Anything else is rejected.
+function isValidChartStateRange(value) {
+    return !!value
+        && typeof value === 'object'
+        && Number.isFinite(value.from)
+        && Number.isFinite(value.to);
+}
 
 const ChartState = {
     symbol: 'RELIANCE.NS',
@@ -71,8 +82,7 @@ const ChartState = {
                 if (typeof parsed.crosshair.lockScale === 'boolean') {
                     this.crosshair.lockScale = parsed.crosshair.lockScale;
                 }
-                if (parsed.crosshair.visibleLogicalRange === null
-                    || (typeof parsed.crosshair.visibleLogicalRange === 'number' && Number.isFinite(parsed.crosshair.visibleLogicalRange))) {
+                if (parsed.crosshair.visibleLogicalRange === null || isValidChartStateRange(parsed.crosshair.visibleLogicalRange)) {
                     this.crosshair.visibleLogicalRange = parsed.crosshair.visibleLogicalRange;
                 }
                 if (typeof parsed.crosshair.showLegend === 'boolean') {

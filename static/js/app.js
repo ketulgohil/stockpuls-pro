@@ -257,6 +257,10 @@ function showTab(tabName) {
 }
 
 // Chart Functions
+// Active ResizeObserver for the legacy chart container. Kept so a re-init can
+// disconnect the previous observer instead of leaking one per init call.
+let chartResizeObserver = null;
+
 function initChart() {
     const container = document.getElementById('chartContainer');
     if (!container) {
@@ -348,9 +352,11 @@ function initChart() {
         });
     });
 
-    new ResizeObserver(() => {
+    if (chartResizeObserver) chartResizeObserver.disconnect();
+    chartResizeObserver = new ResizeObserver(() => {
         chart.applyOptions({ width: container.clientWidth });
-    }).observe(container);
+    });
+    chartResizeObserver.observe(container);
 }
 
 async function loadChart() {
@@ -579,6 +585,13 @@ function clearChartOverlayChart() {
 // Load chart data for dedicated view
 // Timeframe → period/interval mapping
 // period = how much historical data to fetch, interval = candle granularity
+//
+// Visible-range policy (Phase 3): every chart load ends with
+// timeScale().fitContent() (see loadChartChart / loadChart). We deliberately do
+// NOT persist or restore a user-adjusted zoom range across reloads: candles are
+// re-fetched and re-sorted on every load, so a saved range can point outside
+// the new data and render an empty chart. If a persistent zoom is ever added,
+// clamp the saved range against the freshly loaded data before applying it.
 const TIMEFRAME_CONFIG = {
     '1d':   { period: '1y', interval: '1d' },   // 1 year of daily candles
     '5d':   { period: '1y', interval: '1d' },   // 1 year of daily candles
@@ -803,7 +816,9 @@ async function loadChartChart(symbolArg) {
 
         if (data.error || !data.data || data.data.length === 0) {
             if (loadingEl) loadingEl.style.display = 'none';
-            const msg = data.error ? data.error : 'No data available for ' + symbol;
+            // Error text originates from the API/user input — escape before it
+            // goes into innerHTML (Phase 1).
+            const msg = data.error ? escapeHtml(String(data.error)) : 'No data available for ' + escapeHtml(symbol);
             let suggestion = '';
             if (data.error && data.error.includes('not found')) {
                 suggestion = '<p class="placeholder" style="font-size:11px; margin-top:4px;">Try searching for the stock in the search box or try a different symbol.</p>';
@@ -827,7 +842,7 @@ async function loadChartChart(symbolArg) {
         }
         if (candles.length === 0) {
             if (loadingEl) loadingEl.style.display = 'none';
-            showChartOverlayChart('<p class="placeholder">Invalid candle data for ' + symbol + '</p><br><button class="btn-secondary" onclick="loadChartChart(currentSymbol)" style="margin-top:8px;">Retry</button>');
+            showChartOverlayChart('<p class="placeholder">Invalid candle data for ' + escapeHtml(symbol) + '</p><br><button class="btn-secondary" onclick="loadChartChart(currentSymbol)" style="margin-top:8px;">Retry</button>');
             return;
         }
         // Sort by time ascending
@@ -929,8 +944,8 @@ async function loadChartChart(symbolArg) {
     } catch (err) {
         console.error('[loadChartChart] ERROR:', err);
         if (loadingEl) loadingEl.style.display = 'none';
-        // Safe error display - don't interpolate untrusted text
-        const safeMsg = String(err.message || err).replace(/[<>]/g, '');
+        // Safe error display - escape untrusted text before interpolation
+        const safeMsg = escapeHtml(String(err.message || err));
         showChartOverlayChart('<p class="placeholder">Error loading chart: ' + safeMsg + '</p><br><button class="btn-secondary" onclick="loadChartChart(currentSymbol)" style="margin-top:8px;">Retry</button>');
     } finally {
         console.log('[loadChartChart] FINALLY', { requestId: thisRequestId, currentRequestId: chartRequestId });
@@ -1614,7 +1629,7 @@ async function loadDashboardGainersLosers() {
                     <thead><tr><th>Stock</th><th>Price</th><th>Change</th></tr></thead>
                     <tbody>
                         ${data.gainers.map(s => `
-                            <tr data-live-symbol="${s.symbol}" onclick="selectStock('${s.symbol}')" style="cursor:pointer">
+                            <tr data-live-symbol="${s.symbol}" data-chart-symbol="${s.symbol}" style="cursor:pointer">
                                 <td><strong>${s.name}</strong></td>
                                 <td data-live-price>${fmtPrice(s.price)}</td>
                                 <td class="positive" data-live-change-pct>+${fmtPct(s.changePercent)}</td>
@@ -1631,7 +1646,7 @@ async function loadDashboardGainersLosers() {
                     <thead><tr><th>Stock</th><th>Price</th><th>Change</th></tr></thead>
                     <tbody>
                         ${data.losers.map(s => `
-                            <tr data-live-symbol="${s.symbol}" onclick="selectStock('${s.symbol}')" style="cursor:pointer">
+                            <tr data-live-symbol="${s.symbol}" data-chart-symbol="${s.symbol}" style="cursor:pointer">
                                 <td><strong>${s.name}</strong></td>
                                 <td data-live-price>${fmtPrice(s.price)}</td>
                                 <td class="negative" data-live-change-pct>${fmtPct(s.changePercent)}</td>
@@ -1702,8 +1717,8 @@ async function openChart(symbol) {
         console.error('[openChart] Could not initialize chart:', error);
         const loading = document.getElementById('chartLoadingChart');
         if (loading) loading.style.display = 'none';
-        const message = String(error?.message || error).replace(/[<>]/g, '');
-        showChartOverlayChart(`<p class="placeholder">Could not open chart: ${message}</p><button class="btn-secondary" onclick="openChart('${sym}')" style="margin-top:8px;">Retry</button>`);
+        const message = escapeHtml(String(error?.message || error));
+        showChartOverlayChart(`<p class="placeholder">Could not open chart: ${message}</p><button class="btn-secondary" onclick="openChart('${escapeHtml(sym)}')" style="margin-top:8px;">Retry</button>`);
     }
 }
 
@@ -1720,7 +1735,7 @@ async function loadChartWatchlist() {
                 const changePct = w.changePercent || 0;
                 const isPositive = changePct >= 0;
                 return `
-                    <div class="watchlist-item-pro" data-live-symbol="${sym}" onclick="selectStockFromChartWatchlist('${sym}')" role="button" tabindex="0" aria-label="Select ${displaySymbol(sym)}">
+                    <div class="watchlist-item-pro" data-live-symbol="${sym}" data-chart-symbol="${sym}" role="button" tabindex="0" aria-label="Select ${displaySymbol(sym)}">
                         <div class="watchlist-item-info">
                             <div class="symbol">${displaySymbol(sym)}</div>
                             <div class="price" data-live-price>${fmtPrice(w.price)}</div>
@@ -1756,11 +1771,7 @@ async function loadChartWatchlist() {
     }
 }
 
-// Select stock from chart watchlist
-function selectStockFromChartWatchlist(symbol) {
-    console.log('[selectStockFromChartWatchlist] called with:', symbol);
-    selectStock(symbol);
-}
+// (Watchlist items open charts via the delegated [data-chart-symbol] handler.)
 
 // Add stock to chart watchlist
 async function addToChartWatchlist() {
@@ -1841,10 +1852,58 @@ function loadChartSymbolFromInput() {
     openChart(raw);
 }
 
-// Enter key on chart symbol input
+// Keyboard navigation for the chart symbol input + search dropdown.
+// Highlighted result index; -1 = no highlight (raw input wins on Enter).
+let chartSearchActiveIndex = -1;
+
+function getChartSearchItems() {
+    const container = document.getElementById('chartSearchResults');
+    if (!container) return [];
+    return Array.from(container.querySelectorAll('.search-item[data-chart-symbol]'));
+}
+
+function setChartSearchHighlight(items, index) {
+    items.forEach((el, i) => el.classList.toggle('search-item-active', i === index));
+}
+
 document.getElementById('chartSymbolInput')?.addEventListener('keydown', async (e) => {
+    const container = document.getElementById('chartSearchResults');
+    const dropdownOpen = container && container.classList.contains('active');
+
+    // Escape closes the dropdown without changing the chart
+    if (e.key === 'Escape') {
+        if (dropdownOpen) {
+            e.preventDefault();
+            closeChartSymbolSearch();
+        }
+        return;
+    }
+
+    const items = getChartSearchItems();
+
+    // ArrowUp/ArrowDown move the highlight through the result list
+    if (items.length > 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+        e.preventDefault();
+        if (chartSearchActiveIndex === -1) {
+            chartSearchActiveIndex = e.key === 'ArrowDown' ? 0 : items.length - 1;
+        } else {
+            chartSearchActiveIndex = e.key === 'ArrowDown'
+                ? (chartSearchActiveIndex + 1) % items.length
+                : (chartSearchActiveIndex - 1 + items.length) % items.length;
+        }
+        setChartSearchHighlight(items, chartSearchActiveIndex);
+        return;
+    }
+
+    // Enter: highlighted result first, otherwise the raw input
     if (e.key === 'Enter') {
         e.preventDefault();
+        const highlighted = chartSearchActiveIndex >= 0 ? items[chartSearchActiveIndex] : null;
+        if (highlighted) {
+            openChart(highlighted.dataset.chartSymbol);
+            closeChartSymbolSearch();
+            return;
+        }
         const raw = document.getElementById('chartSymbolInput')?.value?.trim();
         if (raw) openChart(raw);
     }
@@ -1858,8 +1917,7 @@ document.getElementById('chartSymbolInput')?.addEventListener('input', async (e)
     if (!container) return;
     
     if (q.length < 2) {
-        container.innerHTML = '';
-        container.classList.remove('active');
+        closeChartSymbolSearch();
         return;
     }
     
@@ -1867,10 +1925,11 @@ document.getElementById('chartSymbolInput')?.addEventListener('input', async (e)
     chartSymbolSearchTimeout = setTimeout(async () => {
         const data = await api(`/api/stocks/search?query=${encodeURIComponent(q)}`);
         if (data && data.length > 0) {
+            chartSearchActiveIndex = -1;
             container.innerHTML = data.slice(0, 8).map(s => `
-                <div class="search-item" onclick="event.stopPropagation(); selectStockFromSearch('${s.symbol}')" style="cursor:pointer; padding:6px 8px; border-bottom:1px solid var(--border);">
+                <div class="search-item" data-chart-symbol="${escapeHtml(s.symbol)}" style="cursor:pointer; padding:6px 8px; border-bottom:1px solid var(--border);">
                     <strong>${displaySymbol(s.symbol)}</strong>
-                    <small style="color:var(--text-muted); font-size:10px; display:block;">${s.name || ''}</small>
+                    <small style="color:var(--text-muted); font-size:10px; display:block;">${escapeHtml(s.name || '')}</small>
                 </div>
             `).join('');
             container.classList.add('active');
@@ -1881,13 +1940,61 @@ document.getElementById('chartSymbolInput')?.addEventListener('input', async (e)
     }, 200);
 });
 
-function selectStockFromSearch(symbol) {
-    const input = document.getElementById('chartSymbolInput');
-    if (input) input.value = symbol;
-    document.getElementById('chartSearchResults').innerHTML = '';
-    document.getElementById('chartSearchResults').classList.remove('active');
-    openChart(symbol);
+function closeChartSymbolSearch() {
+    const container = document.getElementById('chartSearchResults');
+    if (container) {
+        container.innerHTML = '';
+        container.classList.remove('active');
+    }
+    chartSearchActiveIndex = -1;
 }
+
+// ===== Delegated chart-open handler (Phase 0) =====
+// Any element rendered with data-chart-symbol="SYMBOL" opens that symbol's
+// chart on click (or Enter/Space when focused). Replaces per-row inline
+// onclick="selectStock(...)" handlers so dynamic HTML never interpolates
+// JavaScript call sites, and every chart entry point funnels through
+// openChart() — the single selection path.
+function openChartFromElement(el) {
+    const sym = el?.dataset?.chartSymbol;
+    if (!sym) return;
+    closeChartSymbolSearch();
+    // If the trigger lives in the topbar search dropdown, close it too
+    const topbarResults = document.getElementById('searchResults');
+    if (topbarResults && topbarResults.contains(el)) {
+        topbarResults.classList.remove('active');
+        const topbarInput = document.getElementById('searchInput');
+        if (topbarInput) topbarInput.value = '';
+    }
+    openChart(sym);
+}
+
+document.addEventListener('click', (e) => {
+    const target = e.target.closest?.('[data-chart-symbol]');
+    if (!target) {
+        // Clicking anywhere outside the chart symbol search closes its dropdown
+        if (!e.target.closest?.('#chartSymbolInput') && !e.target.closest?.('#chartSearchResults')) {
+            closeChartSymbolSearch();
+        }
+        return;
+    }
+    e.preventDefault();
+    openChartFromElement(target);
+});
+
+// Keyboard activation for non-native controls (divs/spans with tabindex).
+// Native <button>/<a> elements dispatch click on Enter/Space themselves and
+// are handled by the click listener above — skipped here to avoid double-open.
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    if (e.repeat) return;
+    const target = e.target instanceof Element ? e.target.closest('[data-chart-symbol]') : null;
+    if (!target) return;
+    const tag = target.tagName;
+    if (tag === 'BUTTON' || (tag === 'A' && target.hasAttribute('href'))) return;
+    e.preventDefault();
+    openChartFromElement(target);
+});
 
 // Enter key on chart watchlist search
 document.getElementById('chartWatchlistSearch')?.addEventListener('keydown', (e) => {
@@ -2019,11 +2126,11 @@ document.getElementById('searchInput')?.addEventListener('input', async (e) => {
         if (data && data.length > 0) {
             container.innerHTML = data.slice(0, 10).map(r => `
                 <div class="search-item" style="display:flex; justify-content:space-between; align-items:center;">
-                    <div onclick="selectStock('${r.symbol}')" style="cursor:pointer; flex:1;">
+                    <div data-chart-symbol="${r.symbol}" style="cursor:pointer; flex:1;">
                         <strong>${r.symbol.replace('.NS', '')}</strong>
                         <small style="color: var(--text-muted); margin-left: 8px; display:block;">${r.name || ''}</small>
                     </div>
-                    <button class="btn-sm icon-btn" onclick="event.stopPropagation(); openStockChart('${r.symbol}')" title="Open Chart" aria-label="Open chart for ${r.symbol}">
+                    <button class="btn-sm icon-btn" data-chart-symbol="${r.symbol}" title="Open Chart" aria-label="Open chart for ${r.symbol}">
                         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                             <rect x="1" y="3" width="18" height="18" rx="2" ry="2"></rect>
                             <line x1="1" y1="12" x2="7" y2="12"></line>
@@ -2083,7 +2190,7 @@ async function loadMarket() {
                 <thead><tr><th>Stock</th><th>Price</th><th>Change</th></tr></thead>
                 <tbody>
                     ${gainersData.gainers.map(s => `
-                        <tr data-live-symbol="${s.symbol}" onclick="selectStock('${s.symbol}'); showTab('chart')" style="cursor:pointer">
+                        <tr data-live-symbol="${s.symbol}" data-chart-symbol="${s.symbol}" style="cursor:pointer">
                             <td><strong>${s.name}</strong></td>
                             <td data-live-price>${fmtPrice(s.price)}</td>
                             <td class="positive" data-live-change-pct>+${fmtPct(s.changePercent)}</td>
@@ -2100,7 +2207,7 @@ async function loadMarket() {
                 <thead><tr><th>Stock</th><th>Price</th><th>Change</th></tr></thead>
                 <tbody>
                     ${losersData.losers.map(s => `
-                        <tr data-live-symbol="${s.symbol}" onclick="selectStock('${s.symbol}'); showTab('chart')" style="cursor:pointer">
+                        <tr data-live-symbol="${s.symbol}" data-chart-symbol="${s.symbol}" style="cursor:pointer">
                             <td><strong>${s.name}</strong></td>
                             <td data-live-price>${fmtPrice(s.price)}</td>
                             <td class="negative" data-live-change-pct>${fmtPct(s.changePercent)}</td>
@@ -2132,7 +2239,7 @@ async function loadSignals() {
                             <td>${s.indicator || '-'}</td>
                             <td>${s.strength || '-'}</td>
                             <td data-live-price>${fmtPrice(s.price)}</td>
-                            <td><button class="btn-primary" onclick="selectStock('${s.symbol}'); showTab('chart')">View</button></td>
+                            <td><button class="btn-primary" data-chart-symbol="${s.symbol}">View</button></td>
                         </tr>
                     `).join('')}
                 </tbody>
@@ -2240,7 +2347,7 @@ function displayScreenerResults(data) {
                                 <td class="${s.changePercent >= 0 ? 'positive' : 'negative'}" data-live-change-pct>${fmtPct(s.changePercent)}</td>
                                 <td>${s.rsi?.toFixed(2) || '-'}</td>
                                 <td>${s.macd?.toFixed(2) || '-'}</td>
-                                <td><button class="btn-primary" onclick="selectStock('${s.symbol}'); showTab('chart')">View</button></td>
+                                <td><button class="btn-primary" data-chart-symbol="${s.symbol}">View</button></td>
                             </tr>
                         `).join('')}
                     </tbody>
@@ -2411,7 +2518,7 @@ async function loadPortfolio() {
                             <td class="${(h.pnl || 0) >= 0 ? 'positive' : 'negative'}" data-live-pnl>${(h.pnl || 0) >= 0 ? '+' : '-'}₹${Math.abs(h.pnl || 0).toFixed(2)} (${(h.pnlPercent || 0) >= 0 ? '+' : ''}${(h.pnlPercent || 0).toFixed(2)}%)</td>
                             <td data-rec-cell="${h.symbol}" class="rec-cell"><span class="portfolio-recommendation recommendation-pending">PENDING</span><small class="portfolio-recommendation-time">waiting for scan data…</small></td>
                             <td>
-                                <button class="btn-secondary" style="padding:4px 10px; font-size:12px;" onclick="selectStock('${h.symbol}')" title="Open live chart">Chart</button>
+                                <button class="btn-secondary" style="padding:4px 10px; font-size:12px;" data-chart-symbol="${h.symbol}" title="Open live chart">Chart</button>
                                 <button class="btn-secondary" style="padding:4px 10px; font-size:12px;" onclick="toggleSellRow('${h.symbol}', ${h.quantity}, ${h.currentPrice || h.buyPrice})">Sell</button>
                                 <button class="btn-danger" onclick="removePortfolio('${h.symbol}')">Remove</button>
                             </td>
@@ -3134,7 +3241,7 @@ async function loadWatchlist() {
                             <td data-live-price>${fmtPrice(w.price)}</td>
                             <td class="${(w.changePercent || 0) >= 0 ? 'positive' : 'negative'}" data-live-change-pct>${fmtPct(w.changePercent || 0)}</td>
                             <td>
-                                <button class="btn-primary" onclick="selectStock('${w.symbol}'); showTab('chart')">View</button>
+                                <button class="btn-primary" data-chart-symbol="${w.symbol}">View</button>
                                 <button class="btn-danger" onclick="removeWatchlist('${w.symbol}')">Remove</button>
                             </td>
                         </tr>
@@ -3778,7 +3885,7 @@ async function loadMarketMood() {
                 <h4 style="font-size:13px; color:var(--text-secondary); margin-bottom:8px;">Top Trending</h4>
                 <div class="trending-list">
                     ${data.trending_stocks.map(s => `
-                        <div class="trending-item" onclick="selectStock('${s.symbol}'); showTab('chart')" style="cursor:pointer">
+                        <div class="trending-item" data-chart-symbol="${s.symbol}" style="cursor:pointer">
                             <strong>${s.name}</strong>
                             <span class="badge ${s.sentiment === 'BULLISH' ? 'positive' : s.sentiment === 'BEARISH' ? 'negative' : ''}">${s.sentiment}</span>
                             <span style="color:var(--text-muted); font-size:12px;">${s.news_count} news</span>
@@ -4058,7 +4165,7 @@ async function loadHeatmap() {
                     <div class="sector-stocks">
                         ${sector.stocks.map(stock => `
                             <div class="heatmap-stock ${stock.change >= 0 ? 'positive' : 'negative'}" 
-                                 onclick="selectStock('${stock.symbol}'); showTab('chart')"
+                                 data-chart-symbol="${stock.symbol}"
                                  style="opacity: ${Math.min(Math.abs(stock.change) / 3 + 0.4, 1)}">
                                 <span class="stock-name">${stock.name}</span>
                                 <span class="stock-change">${fmtChg(stock.change)}%</span>
@@ -6390,7 +6497,7 @@ async function loadVolumeAlerts() {
             container.innerHTML = data.alerts.map(alert => `
                 <div class="volume-alert-item ${alert.signal.toLowerCase()}" data-live-symbol="${normalizeSymbol(alert.symbol)}">
                     <div class="alert-left">
-                        <span class="alert-symbol" onclick="selectStock('${alert.symbol}.NS'); showTab('chart')" style="cursor:pointer">${alert.symbol}</span>
+                        <span class="alert-symbol" data-chart-symbol="${normalizeSymbol(alert.symbol)}" style="cursor:pointer">${alert.symbol}</span>
                         <span class="alert-price" data-live-price>₹${alert.price}</span>
                     </div>
                     <div class="alert-center">
@@ -6453,7 +6560,7 @@ async function loadPortfolioTicker() {
 
         // Create scrolling ticker content
         const tickerItems = holdings.map(h => `
-            <span class="ticker-item" onclick="selectStock('${h.symbol}'); showTab('chart')" style="cursor:pointer">
+            <span class="ticker-item" data-chart-symbol="${h.symbol}" style="cursor:pointer">
                 <span class="ticker-symbol">${h.symbol.replace('.NS', '')}</span>
                 <span class="ticker-price">₹${h.currentPrice}</span>
                 <span class="ticker-pnl ${h.pnl >= 0 ? 'positive' : 'negative'}">
@@ -6783,7 +6890,7 @@ function renderSentinelAlertCard(alert) {
         <div class="sentinel-alert-card ${severityClass}" id="card_${alert.id}">
             <div class="sentinel-card-header">
                 <div class="sentinel-header-left">
-                    <span class="sentinel-symbol-pill" onclick="selectStock('${alert.symbol}'); showTab('chart');" title="Click to view chart on dashboard">
+                    <span class="sentinel-symbol-pill" data-chart-symbol="${alert.symbol}" title="Click to view chart on dashboard">
                         ${cleanSym}
                     </span>
                     <span class="sentinel-severity-badge ${severityClass}">${alert.severity}</span>
@@ -6858,7 +6965,7 @@ function renderSentinelAlertCard(alert) {
 
             <!-- Card Footer Actions -->
             <div class="sentinel-card-footer">
-                <button class="btn-sm btn-primary" onclick="selectStock('${alert.symbol}'); showTab('chart');">
+                <button class="btn-sm btn-primary" data-chart-symbol="${alert.symbol}">
                     📈 View Chart
                 </button>
                 <button class="btn-sm btn-secondary" onclick="investigateSymbolSentinel('${alert.symbol}')">
@@ -7023,7 +7130,7 @@ function renderSentinelDigestCard(d) {
                     <span class="section-label">🎯 Key Stocks in Focus:</span>
                     <div class="focus-stocks-list">
                         ${d.top_stocks_in_focus.map(sym => `
-                            <button class="focus-stock-btn" onclick="selectStock('${sym}'); showTab('chart');">
+                            <button class="focus-stock-btn" data-chart-symbol="${sym}">
                                 ${sym.replace('.NS', '')}
                             </button>
                         `).join('')}
@@ -7439,7 +7546,7 @@ function tdRenderScan(data, type) {
             '<button class="btn-secondary td-row-btn" onclick="tdPlanFromScan(\'' + sym + '\',' + (h.or_high || h.price) + ',' + (h.or_low || h.price) + ')" title="Plan exit (Exit Planner)">🎯 Exit</button>';
         if (isOrb) {
             return '<tr class="td-hit-row" data-live-symbol="' + sym + '">' +
-                '<td><a href="#" onclick="openStockChart(\'' + sym + '\'); return false;"><b>' + sym.replace('.NS', '') + '</b></a></td>' +
+                '<td><a href="#" data-chart-symbol="' + sym + '"><b>' + sym.replace('.NS', '') + '</b></a></td>' +
                 '<td>' + (h.at || '') + '</td>' +
                 '<td>' + live + '</td>' +
                 '<td>₹' + fmtPrice(h.or_high) + '</td>' +
@@ -7450,7 +7557,7 @@ function tdRenderScan(data, type) {
         }
         const setups = (h.setups || []).map(s => '<span class="td-chip td-chip-no-data">' + (TD_SETUP_LABELS[s] || s) + '</span>').join(' ');
         return '<tr class="td-hit-row" data-live-symbol="' + sym + '">' +
-            '<td><a href="#" onclick="openStockChart(\'' + sym + '\'); return false;"><b>' + sym.replace('.NS', '') + '</b></a></td>' +
+            '<td><a href="#" data-chart-symbol="' + sym + '"><b>' + sym.replace('.NS', '') + '</b></a></td>' +
             '<td>' + setups + '</td>' +
             '<td>' + live + '</td>' +
             '<td>' + (h.rsi != null ? h.rsi : '—') + '</td>' +
@@ -8697,7 +8804,7 @@ function tdRenderEntryWatch() {
                 : (st.reason || '');
         const lvlTxt = w.setup === 'level' ? ' level ₹' + fmtPrice(w.level) : '';
         return '<tr class="td-hit-row" data-symbol="' + w.symbol + '" data-live-symbol="' + w.symbol + '">' +
-            '<td><a href="#" onclick="openStockChart(\'' + w.symbol + '\'); return false;"><b>' + w.symbol.replace('.NS', '') + '</b></a></td>' +
+            '<td><a href="#" data-chart-symbol="' + w.symbol + '"><b>' + w.symbol.replace('.NS', '') + '</b></a></td>' +
             '<td>' + (w.setup === 'orb' ? 'ORB' + lvlTxt : 'Level') + '</td>' +
             '<td><span class="' + chipClass + '">' + chipLabel + '</span></td>' +
             '<td><span data-live-price>—</span> <span data-live-change-pct class="muted"></span></td>' +
@@ -8918,7 +9025,7 @@ const UpstoxDesk = {
             const diff = q.vwap_diff || 0;
             const above = q.vwap > 0 && q.ltp >= q.vwap;
             return `<tr data-symbol="${sym}">
-                <td><a href="#" class="upx-symbol" onclick="openStockChart('${sym}'); return false;">${sym}</a></td>
+                <td><a href="#" class="upx-symbol" data-chart-symbol="${sym}">${sym}</a></td>
                 <td class="upx-ltp">${fmtPrice(q.ltp)}</td>
                 <td class="upx-chg ${pct >= 0 ? 'upx-up' : 'upx-down'}">${pct > 0 ? '▲' : pct < 0 ? '▼' : ''} ${Math.abs(pct).toFixed(2)}%</td>
                 <td class="upx-vwapdiff ${diff >= 0 ? 'upx-up' : 'upx-down'}">${diff >= 0 ? '+' : ''}${diff.toFixed(2)}%</td>
@@ -9010,7 +9117,7 @@ const UpstoxDesk = {
         }
         tbody.innerHTML = this.positions.map(p => `
             <tr data-pos-id="${p.position_id || p.id}">
-                <td><a href="#" class="upx-symbol" onclick="openStockChart('${p.symbol}'); return false;">${(p.symbol || '').replace('.NS', '')}</a></td>
+                <td><a href="#" class="upx-symbol" data-chart-symbol="${p.symbol}">${(p.symbol || '').replace('.NS', '')}</a></td>
                 <td>${p.quantity}</td>
                 <td>₹${(p.entry_price || 0).toFixed(2)}</td>
                 <td class="upx-posltp">₹${(p.last_price || p.current_price || p.entry_price || 0).toFixed(2)}</td>

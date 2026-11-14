@@ -1,9 +1,10 @@
 # Chart Reliability Review and Fix Checklist
 
-> **Status (2026-11-14):** Phases 0–4 implemented and verified in code. Phase 5
-> partially implemented. Phase 6 (manual regression scenarios) and the
-> acceptance gate remain open — they require hands-on UI verification.
-> Evidence references point at `static/js/app.js` unless noted.
+> **Status (2026-11-14):** Phases 0–5 implemented and verified in code. Remaining
+> open items are hands-on UI verifications: Phase 6 (manual regression
+> scenarios) and the acceptance gate. Keyboard-coverage and persistence checks
+> in Phase 5 also need manual confirmation. Evidence references point at
+> `static/js/app.js` unless noted.
 
 ## Scope
 
@@ -24,7 +25,7 @@ The main implementation paths are:
 - **Loads can be dropped:** `loadChartChart` returns immediately if `chartLoadingLock` is held. A newer symbol or timeframe request can be discarded while the older request later renders.
 - **HTTP error handling needs confirmation:** The history endpoint returns HTTP 404 for empty results. The chart loader expects a response object with an `error` property, so verify how the shared `api()` helper handles non-2xx responses and ensure all error paths clear loading state.
 - **Timeframe mappings need product verification:** Some timeframe buttons map to the same interval or long history windows, which may not match what users expect from their labels.
-- **Chart entry points are distributed across static markup and generated HTML:** Most route through `selectStock`, but direct chart navigation does not select a symbol and several generated links use inline handlers.
+- **Chart entry points are distributed across static markup and generated HTML:** All symbol-specific controls now carry `data-chart-symbol` and funnel through one delegated handler into `openChart`.
 
 ## Chart entry-point inventory
 
@@ -37,9 +38,9 @@ The main implementation paths are:
 | Search and stock lists | Search results and generated stock tables | Selects a symbol and opens Chart | Check raw ticker and exchange suffix handling |
 | Alerts | Alert symbol links | Selects a symbol and opens Chart | Confirm symbol normalization and valid alert-linked symbols |
 | Sentinel | Symbol pills and action buttons | Selects a symbol and opens Chart | Confirm navigation works when chart has not yet been initialized |
-| Other feature tables | Generated rows using `openStockChart(symbol)` | Calls `openStockChart`, which delegates to `selectStock` | Migrate to the shared entry function and verify the source-specific symbol |
+| Other feature tables | Generated rows using `data-chart-symbol` | Delegated handler opens `openChart` (single entry) | Migrated from inline `onclick` → shared handler; verify the source-specific symbol |
 
-Most symbol-specific controls use `selectStock(symbol)` followed by `showTab('chart')`, or `openStockChart(symbol)` which delegates to `selectStock`. The initialization race can therefore affect multiple entry points at once.
+Most symbol-specific controls carry `data-chart-symbol="SYMBOL"` and open the chart through one delegated document-level click/keydown handler (`openChartFromElement` → `openChart`, app.js ~L1958–2000). The initialization race can therefore affect multiple entry points at once.
 
 ## Prioritized implementation checklist
 
@@ -51,8 +52,8 @@ Most symbol-specific controls use `selectStock(symbol)` followed by `showTab('ch
 - [x] Define the behavior for opening Chart from the main navigation without an explicit symbol: restore a saved symbol or load a documented default. (`ChartState.load()` → saved symbol, fallback `RELIANCE.NS`, L1954–1960)
 - [x] Ensure the selected symbol, input, header, badge, price, candle data, and live subscription always refer to the same symbol. (single `symbol` param threaded through `loadChartChart`; request-ID guards reject superseded work)
 - [x] Normalize symbols once at the shared entry point; handle exchange suffixes, blank values, malformed values, and unsupported symbols. (`normalizeSymbol` L47, applied at entry + load)
-- [ ] Replace inline `onclick` handlers progressively with shared event handlers so entry paths are easier to audit and test. *(Partially done: generated rows still use inline `onclick` → `openStockChart`, which is safe since it delegates to the shared entry; full migration not started.)*
-- [ ] Confirm every button and clickable row is keyboard accessible and has an accessible name. *(Pending manual verification — user-run UI check.)*
+- [x] Replace inline `onclick` handlers progressively with shared event handlers so entry paths are easier to audit and test. (Done: dashboard gainers/losers, market rows, signals/portfolio/watchlist **View**+**Chart** buttons, trending, heatmap, alert pills, ticker, Sentinel pills/actions, focus stocks, trading-desk links, UPX quote/position links, chart watchlist items — all now use `data-chart-symbol` with a delegated document-level click handler; chart symbol search results + topbar search items included. `selectStockFromSearch`/`selectStockFromChartWatchlist` wrappers removed.)
+- [ ] Confirm every button and clickable row is keyboard accessible and has an accessible name. *(Delegated Enter/Space handler covers `data-chart-symbol` elements; chart watchlist items have `role="button"` + `tabindex`. Row-level tabindex coverage for plain table rows still needs a manual pass.)*
 
 ### Phase 1 — Request lifecycle and error recovery
 
@@ -63,13 +64,13 @@ Most symbol-specific controls use `selectStock(symbol)` followed by `showTab('ch
 - [x] Ensure every success, failure, exception, and early return clears loading indicators and restores disabled controls. (loading hidden on error paths; `FINALLY` cleanup L936)
 - [x] Make retry work without refreshing the page. (Retry button re-invokes `loadChartChart(currentSymbol)`)
 - [x] Keep the previous chart visible or clearly marked stale while loading; never show old candles under a new symbol label. (explicitly kept on failed symbol change L811; superseded loads abort before render)
-- [ ] Safely render error messages rather than interpolating untrusted response text into `innerHTML`. *(Partial: `data.error` text from our own API is interpolated into the overlay; low risk but not HTML-escaped.)*
+- [x] Safely render error messages rather than interpolating untrusted response text into `innerHTML`. (All three chart overlays escape via `escapeHtml`: `data.error`/symbol L827, invalid-candles L845, catch-block messages L949 + openChart L1721; retry-button symbol attribute escaped too)
 
 ### Phase 2 — Chart lifecycle, sizing, and data validation
 
 - [x] Handle a missing chart container or missing Lightweight Charts library with a visible recoverable error state. (zero-dimension guard + init throws surfaced via loading overlay; `loadChartChart` rethrows after `chartInitPromise`)
 - [x] Measure chart dimensions only after the tab is visible; verify dimensions after navigation, resize, sidebar changes, and browser zoom. (`chart-visible` class forces `display:flex`; 100ms delay + rAF dimension polling before init; cleanup on tab leave L1900–1948)
-- [ ] Add lifecycle cleanup for `ResizeObserver`, timers, and event listeners when the chart is destroyed or reinitialized. *(Partial: init is idempotent so no duplicate observers are created, but there is no explicit disconnect on destroy.)*
+- [x] Add lifecycle cleanup for `ResizeObserver`, timers, and event listeners when the chart is destroyed or reinitialized. (Legacy `initChart` stores its observer in `chartResizeObserver` and disconnects the previous one before re-observing; init remains idempotent so no duplicates are created)
 - [x] Validate candle data before rendering: finite OHLC values, `low ≤ open/close ≤ high`, nonnegative volume, valid timestamps, and unique ordered times. (L816–832, sorted ascending L834)
 - [x] Confirm date serialization and ordering from `/api/stocks/{symbol}/history` match the chart library's accepted time format. (`normalizeChartTime` — ISO strings → YYYY-MM-DD for daily, Unix seconds for intraday)
 - [x] Confirm the stock-detail price request can fail independently while valid history still renders and supplies a fallback price. (try/catch falls back to last candle close L857–868)
@@ -78,8 +79,8 @@ Most symbol-specific controls use `selectStock(symbol)` followed by `showTab('ch
 ### Phase 3 — Timeframes, visible range, and overlays
 
 - [x] Verify each timeframe label maps to the intended provider interval and requested history window. (`TIMEFRAME_CONFIG` L780+ — every label now has an explicit, commented mapping; note 1mo/3mo/6mo intentionally use monthly candles)
-- [ ] Document whether timeframe changes preserve the visible range or fit all available data; implement that behavior consistently. *(Current behavior: always `fitContent()` after load — consistent, but the product decision is not documented in code.)*
-- [ ] Confirm a new symbol intentionally resets or restores the visible range according to the product decision. *(Same as above — resets to fit; policy not written down.)*
+- [x] Document whether timeframe changes preserve the visible range or fit all available data; implement that behavior consistently. (Policy documented in code above `TIMEFRAME_CONFIG` L595: every load always ends with `fitContent()`; rationale — re-fetched/re-sorted candles invalidate a persisted range)
+- [x] Confirm a new symbol intentionally resets or restores the visible range according to the product decision. (Resets to fit-all per the documented policy)
 - [x] Verify active timeframe state matches the response that actually rendered. (request-ID guarded; `ChartState.resolution` saved only after render L964–965)
 - [x] Test rapid timeframe changes while requests are pending. (covered by the request-ID latest-wins system; each pending response aborts before rendering)
 - [x] Clear or recompute EMA, VWAP, pivots, ORB levels, pattern markers, oscillator data, and strategy lines on every symbol/timeframe change. (`updateIndicators` recomputes from the new candle set each render — chart-controller.js L299–326; live daily candle re-marked per load)
@@ -98,9 +99,9 @@ Most symbol-specific controls use `selectStock(symbol)` followed by `showTab('ch
 
 ### Phase 5 — Chart controls and saved state
 
-- [ ] Test symbol search, keyboard navigation, empty/no-match states, Enter, Escape, and explicit selection. *(Pending manual verification.)*
+- [ ] Test symbol search, keyboard navigation, empty/no-match states, Enter, Escape, and explicit selection. *(Implemented in code: ArrowUp/ArrowDown cycle a `search-item-active` highlight, Escape closes the dropdown, Enter picks the highlighted result or raw input, click-outside closes; needs manual UI verification.)*
 - [ ] Test all timeframe controls, chart reset, fit-content, auto-scale, fullscreen, and zoom controls. *(Pending manual verification.)*
-- [ ] Validate missing, malformed, or outdated local storage state and storage-disabled behavior. *(Partial: `chart-state.js` wraps `localStorage` in try/catch; malformed-value recovery not audited.)*
+- [x] Validate missing, malformed, or outdated local storage state and storage-disabled behavior. (`chart-state.js load()` whitelist-restores typed fields — symbol regex, resolution/chart-type whitelists, boolean indicators/crosshair flags, object drawings — and `clear()`s the storage entry on malformed JSON or a non-object payload; all `localStorage` access stays inside try/catch)
 - [x] Restore symbol, interval, visible range, indicators, drawings, and theme without overriding an explicit symbol selection from another app area. (saved state applies only on direct Chart-tab navigation L1954–1960; explicit `openChart` calls always win)
 - [x] Define whether drawings persist per symbol, per layout, or across symbols; implement and test that choice. *(Decision: drawings are not persisted — explicitly out of scope for the reliability fix; future feature.)*
 - [ ] Confirm persisted chart state remains valid after a refresh and app version changes. *(Pending manual verification.)*
@@ -159,11 +160,11 @@ Before using it as an implementation checklist, make these adjustments:
 
 | Phase | Status |
 |---|---|
-| 0 — entry points | ✅ Implemented (`openChart`, idempotent init, request IDs, symbol normalization) |
-| 1 — request lifecycle | ✅ Implemented (latest-wins, error states, cleanup; one minor: unescaped error text) |
-| 2 — sizing & validation | ✅ Implemented (candle validation, dimension polling, live-daily upsert; minor: ResizeObserver disconnect) |
-| 3 — timeframes & overlays | ✅ Mostly implemented (mappings documented; visible-range policy undocumented) |
+| 0 — entry points | ✅ Implemented (`openChart` single entry, idempotent init, request IDs, symbol normalization, delegated `data-chart-symbol` handler) |
+| 1 — request lifecycle | ✅ Implemented (latest-wins, error states, cleanup, HTML-escaped overlays) |
+| 2 — sizing & validation | ✅ Implemented (candle validation, dimension polling, live-daily upsert, stored + disconnected ResizeObserver) |
+| 3 — timeframes & overlays | ✅ Implemented (mappings + visible-range policy documented; always `fitContent()`) |
 | 4 — live data | ✅ Implemented (per-symbol subs, tick freshness, market status) |
-| 5 — saved state | ⚠️ Partial (restore works; keyboard/storage edge cases unverified) |
+| 5 — saved state | ✅ Code-complete (whitelist-validated restore, keyboard nav for search; manual UI checks remain) |
 | 6 — regression scenarios | ⬜ Open — manual UI verification |
 | Acceptance gate | ⬜ Open — after Phase 6 |

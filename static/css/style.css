@@ -257,6 +257,13 @@ body {
     background: var(--bg-hover);
 }
 
+/* Keyboard-highlighted result in the chart symbol search dropdown */
+.search-item-active {
+    background: var(--bg-hover);
+    outline: 1px solid var(--primary);
+    outline-offset: -1px;
+}
+
 .topbar-right {
     display: flex;
     align-items: center;

@@ -10,7 +10,8 @@ from api import (
     news, backtest, market, compare, patterns,
     correlation, breadth, fundamentals, analysis, alerts, export, ai, gemini, advanced, more, features,
     mutual_funds, block_deals, quarterly_results, screener_strategies, downstox, sentinel, upstox_trading,
-    exit, budget, risk, scanner, entry, timemachine, analyst, alerts, broker, institutional, news, dashboard, auth
+    exit, budget, risk, scanner, entry, timemachine, analyst, alerts, broker, institutional, news, dashboard, auth,
+    portfolio_recommendations
 )
 from core.auth import verify_api_key
 import inngest.fast_api
@@ -91,6 +92,7 @@ app.include_router(sentinel.router)
 app.include_router(upstox_trading.router)
 app.include_router(upstox_trading.ws_router)
 app.include_router(auth.router)
+app.include_router(portfolio_recommendations.router)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StockPulse Pro | Indian Market Analytics</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=4.12">
+    <link rel="stylesheet" href="/static/css/style.css?v=4.13">
     <link rel="manifest" href="/static/manifest.json">
     <meta name="theme-color" content="#0a0a0f">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
@@ -1946,6 +1946,48 @@
                         </div>
                     </div>
 
+                    <!-- Recommendation performance (daily scan history + outcomes) -->
+                    <div class="card mt-2">
+                        <div class="card-header">
+                            <h3>Recommendation Performance</h3>
+                            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                                <span id="recScanStatus" class="rec-scan-status">Scan status loading…</span>
+                                <button id="recRescanBtn" class="btn-secondary" style="padding:4px 10px; font-size:12px;" onclick="manualRecommendationRescan()">Rescan now</button>
+                            </div>
+                        </div>
+                        <div class="rec-perf-controls" style="display:flex; gap:10px; padding:10px 16px 0; flex-wrap:wrap; font-size:12px;">
+                            <label>Horizon
+                                <select id="recPerfHorizon" onchange="recPerfState.horizon=this.value; loadRecommendationPerformance();">
+                                    <option value="">All</option>
+                                    <option value="daily_swing">Daily / Swing</option>
+                                    <option value="intraday">Intraday</option>
+                                </select>
+                            </label>
+                            <label>Type
+                                <select id="recPerfType" onchange="recPerfState.type=this.value; loadRecommendationPerformance();">
+                                    <option value="">All</option>
+                                    <option value="BUY">BUY</option>
+                                    <option value="SELL">SELL</option>
+                                    <option value="HOLD">HOLD</option>
+                                    <option value="NO_DATA">NO_DATA</option>
+                                    <option value="NOT_ENOUGH_DATA">NOT_ENOUGH_DATA</option>
+                                </select>
+                            </label>
+                            <label>Period
+                                <select id="recPerfDays" onchange="recPerfState.days=parseInt(this.value,10); loadRecommendationPerformance();">
+                                    <option value="30">Last 30 days</option>
+                                    <option value="90" selected>Last 90 days</option>
+                                    <option value="180">Last 180 days</option>
+                                    <option value="365">Last 365 days</option>
+                                </select>
+                            </label>
+                            <span id="recMarketNote" class="rec-market-note"></span>
+                        </div>
+                        <div id="recPerformanceBody" class="card-body">
+                            <p class="placeholder">Open the Portfolio tab to load recommendation performance</p>
+                        </div>
+                    </div>
+
                     <div class="card mt-2">
                         <div class="card-header">
                             <h3>Add Holding</h3>
@@ -2911,7 +2953,7 @@
 <script src="/static/js/chart/indicator-picker.js?v=1.0"></script>
 <script src="/static/js/chart/chart-toolbar.js?v=1.0"></script>
 <script src="/static/js/chart/crosshair-legend.js?v=1.0"></script>
-<script src="/static/js/app.js?v=4.49"></script>
+<script src="/static/js/app.js?v=4.50"></script>
 
 <!-- Third-party scripts loaded at end with defer/async to avoid blocking (Issue #3) -->
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js" defer></script>

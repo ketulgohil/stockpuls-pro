@@ -249,7 +249,7 @@ function showTab(tabName) {
         case 'mutualfunds': stopSectorRefresh(); loadMutualFunds(); break;
         case 'results': stopSectorRefresh(); loadUpcomingResults(); break;
         case 'invest': stopSectorRefresh(); loadSuperinvestors(); break;
-        case 'portfolio': stopSectorRefresh(); loadPortfolio(); loadPortfolioAnalytics(); loadBenchmark(); break;
+        case 'portfolio': stopSectorRefresh(); loadPortfolio(); loadPortfolioAnalytics(); loadBenchmark(); loadPortfolioRecommendations(); loadRecommendationPerformance(); break;
         case 'watchlist': stopSectorRefresh(); loadWatchlist(); break;
         case 'analysis': stopSectorRefresh(); loadAlerts(); break;
         case 'traderdesk': stopSectorRefresh(); initTraderDesk(); break;
@@ -2409,7 +2409,7 @@ async function loadPortfolio() {
                             <td data-live-price>${fmtPrice(h.currentPrice || h.buyPrice)}</td>
                             <td class="${(h.dayChangePnl || 0) >= 0 ? 'positive' : 'negative'}" data-live-daypnl>${(h.dayChangePnl || 0) >= 0 ? '+' : '-'}₹${Math.abs(h.dayChangePnl || 0).toFixed(2)}</td>
                             <td class="${(h.pnl || 0) >= 0 ? 'positive' : 'negative'}" data-live-pnl>${(h.pnl || 0) >= 0 ? '+' : '-'}₹${Math.abs(h.pnl || 0).toFixed(2)} (${(h.pnlPercent || 0) >= 0 ? '+' : ''}${(h.pnlPercent || 0).toFixed(2)}%)</td>
-                            <td><span class="portfolio-recommendation recommendation-${(h.recommendation || 'pending').toLowerCase()}" title="${(h.recommendationSignals || []).map(s => `${s.indicator}: ${s.type} (${s.strength})`).join('&#10;') || 'Waiting for the next daily portfolio scan'}">${h.recommendation || 'PENDING'}</span>${h.recommendationScannedAt ? `<small class="portfolio-recommendation-time">${new Date(h.recommendationScannedAt).toLocaleDateString('en-IN')}</small>` : ''}</td>
+                            <td data-rec-cell="${h.symbol}" class="rec-cell"><span class="portfolio-recommendation recommendation-pending">PENDING</span><small class="portfolio-recommendation-time">waiting for scan data…</small></td>
                             <td>
                                 <button class="btn-secondary" style="padding:4px 10px; font-size:12px;" onclick="selectStock('${h.symbol}')" title="Open live chart">Chart</button>
                                 <button class="btn-secondary" style="padding:4px 10px; font-size:12px;" onclick="toggleSellRow('${h.symbol}', ${h.quantity}, ${h.currentPrice || h.buyPrice})">Sell</button>
@@ -2442,6 +2442,204 @@ async function loadPortfolio() {
     applyLiveDomQuotes();
     loadRealizedPnl();
     loadDividendData();
+    loadPortfolioRecommendations();
+}
+
+// ===== PORTFOLIO RECOMMENDATIONS (daily scan + intraday, durable store) =====
+// Daily/swing recs come from historical daily technicals (RSI/MACD/BB/SMA/MFI);
+// intraday recs come from the live confluence engine. Stored immutably in
+// SQLite by the 15:45 IST scan. Informational only — never financial advice.
+
+let portfolioRecCache = {};   // symbol -> {daily_swing, intraday}
+let portfolioRecScan = null;
+let rescanCooldownUntil = 0;  // ms epoch, set after a rescan
+
+function _recDateShort(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return isNaN(d) ? iso.slice(0, 10) : d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+}
+
+function _recDateTimeShort(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return isNaN(d) ? iso : d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+function _recTooltip(rec, horizonLabel) {
+    if (!rec) return 'No recommendation recorded yet — waiting for the next daily scan (15:45 IST on trading days).';
+    const lines = [];
+    lines.push(`${horizonLabel} · generated ${_recDateTimeShort(rec.generated_at)}`);
+    if (rec.data_as_of) {
+        lines.push(`Market data as of ${rec.data_as_of}${rec.stale_data ? ' (STALE — provider has no candle for the scan day)' : ''}`);
+    }
+    if (rec.reference_price) lines.push(`Reference price ₹${Number(rec.reference_price).toFixed(2)}`);
+    if (rec.holding_qty != null) {
+        lines.push(`Holding at generation: ${rec.holding_qty} @ avg ₹${Number(rec.holding_avg_price || 0).toFixed(2)}`);
+    }
+    lines.push(`Strategy: ${rec.strategy} v${rec.strategy_version}`);
+    const sigs = rec.signals || [];
+    if (sigs.length) {
+        const buys = sigs.filter(s => s.type === 'BUY').length;
+        const sells = sigs.filter(s => s.type === 'SELL').length;
+        if (buys && sells) lines.push(`CONFLICTING signals (${buys} buy vs ${sells} sell) — see all below:`);
+        sigs.forEach(s => {
+            lines.push(`• ${s.indicator}: ${s.type} (${s.strength}) — ${s.message || ''}`);
+        });
+        if (rec.buy_score != null) lines.push(`Scores: buy ${rec.buy_score} vs sell ${rec.sell_score}`);
+    } else if (rec.note) {
+        lines.push(`Note: ${rec.note}`);
+    }
+    lines.push('Informational only — not personalized financial advice. No outcome is guaranteed.');
+    return lines.join('\n');
+}
+
+function _recBadge(rec, horizonKey, horizonLabel) {
+    const label = rec ? rec.recommendation : null;
+    const cls = (label || 'pending').toLowerCase().replace(/[^a-z_]/g, '');
+    let badge = `<span class="portfolio-recommendation recommendation-${cls}" title="${escapeHtml(_recTooltip(rec, horizonLabel)).replace(/"/g, '&quot;')}">${label || 'PENDING'}</span>`;
+    if (rec) {
+        const meta = [];
+        meta.push(`<small class="portfolio-recommendation-time">${_recDateShort(rec.generated_at)}${rec.stale_data ? ' · <span class="rec-stale">stale data</span>' : ''}</small>`);
+        if (horizonKey === 'intraday' && rec.buy_score != null && rec.recommendation !== 'NONE') {
+            meta.push(`<small class="portfolio-recommendation-time">score ${Number(rec.buy_score).toFixed(0)}/100</small>`);
+        }
+        badge += meta.join('');
+    }
+    return badge;
+}
+
+function _recCellHtml(symbol) {
+    const entry = portfolioRecCache[symbol];
+    if (!entry) {
+        return `<span class="portfolio-recommendation recommendation-pending" title="Not scanned yet — the daily scan runs at 15:45 IST on trading days, or press Rescan.">PENDING</span><small class="portfolio-recommendation-time">no record yet</small>`;
+    }
+    const daily = entry.daily_swing;
+    const intraday = entry.intraday;
+    let html = `<div class="rec-line">${_recBadge(daily, 'daily_swing', 'Daily/Swing (historical technicals)')} <span class="rec-horizon-chip">Daily</span></div>`;
+    if (daily && (daily.recommendation === 'NO_DATA' || daily.recommendation === 'NOT_ENOUGH_DATA') && daily.note) {
+        html += `<small class="portfolio-recommendation-time rec-warn" title="${escapeHtml(daily.note)}">${escapeHtml(daily.note)}</small>`;
+    }
+    if (intraday && intraday.recommendation !== 'NO_DATA') {
+        html += `<div class="rec-line rec-intraday-line">${_recBadge(intraday, 'intraday', 'Intraday (live 5m confluence)')} <span class="rec-horizon-chip rec-horizon-intraday">Intraday</span></div>`;
+    }
+    return html;
+}
+
+function renderPortfolioRecommendations() {
+    document.querySelectorAll('td[data-rec-cell]').forEach(td => {
+        const symbol = td.getAttribute('data-rec-cell');
+        td.innerHTML = _recCellHtml(symbol);
+    });
+    const scanEl = document.getElementById('recScanStatus');
+    if (scanEl && portfolioRecScan) {
+        const s = portfolioRecScan;
+        scanEl.innerHTML = `Last scan: <b>${_recDateTimeShort(s.scanned_at)}</b> (${s.trigger}, ${s.status})` +
+            ` · holdings scanned: ${s.scanned_count != null ? s.scanned_count : '—'}`;
+    }
+    const noteEl = document.getElementById('recMarketNote');
+    if (noteEl) noteEl.textContent = portfolioRecScan ? (portfolioRecScan.marketNote || '') : '';
+}
+
+async function loadPortfolioRecommendations() {
+    const data = await api('/api/portfolio/recommendations/latest');
+    if (data && !data.error) {
+        portfolioRecCache = data.recommendations || {};
+        portfolioRecScan = data.scan ? { ...data.scan, marketNote: data.marketNote } : null;
+        if (data.marketNote) {
+            portfolioRecScan = portfolioRecScan || {};
+            portfolioRecScan.marketNote = data.marketNote;
+        }
+        if (data.calendarLimitation) {
+            showToast(data.calendarLimitation, 'info');
+        }
+    } else {
+        portfolioRecCache = {};
+        portfolioRecScan = null;
+    }
+    renderPortfolioRecommendations();
+}
+
+// ===== RECOMMENDATION PERFORMANCE VIEW =====
+const recPerfState = { horizon: '', type: '', days: 90 };
+
+async function loadRecommendationPerformance() {
+    const container = document.getElementById('recPerformanceBody');
+    if (!container) return;
+    const params = new URLSearchParams({ days: recPerfState.days });
+    if (recPerfState.horizon) params.set('horizon', recPerfState.horizon);
+    if (recPerfState.type) params.set('type', recPerfState.type);
+    const data = await api(`/api/portfolio/recommendations/performance?${params}`);
+    if (!data || data.error) {
+        container.innerHTML = `<p class="placeholder">Performance data unavailable${data && data.error ? ` — ${escapeHtml(String(data.error))}` : ''}</p>`;
+        return;
+    }
+
+    const counts = data.counts || {};
+    const buckets = data.buckets || [];
+    const cost = (data.costModel || {});
+
+    let table = '';
+    if (buckets.length) {
+        table = `<div class="table-responsive"><table class="rec-perf-table">
+            <thead><tr><th>Rec</th><th>Horizon</th><th>Worked / Total</th><th>Success</th><th>Avg net %</th><th>Median net %</th><th>Avg vs NIFTY %</th></tr></thead>
+            <tbody>${buckets.map(b => `
+                <tr>
+                    <td><span class="portfolio-recommendation recommendation-${(b.recommendation || '').toLowerCase()}">${b.recommendation}</span></td>
+                    <td>${escapeHtml(b.horizonKey || '')}</td>
+                    <td>${escapeHtml(b.successRatio || '0/0')}</td>
+                    <td>${b.successRate != null ? b.successRate + '%' : '—'}</td>
+                    <td class="${(b.avgNetReturnPct || 0) >= 0 ? 'positive' : 'negative'}">${b.avgNetReturnPct != null ? b.avgNetReturnPct.toFixed(2) + '%' : '—'}</td>
+                    <td>${b.medianNetReturnPct != null ? b.medianNetReturnPct.toFixed(2) + '%' : '—'}</td>
+                    <td class="${(b.avgExcessVsNiftyPct || 0) >= 0 ? 'positive' : 'negative'}">${b.avgExcessVsNiftyPct != null ? b.avgExcessVsNiftyPct.toFixed(2) + '%' : '—'}</td>
+                </tr>`).join('')}
+            </tbody></table></div>`;
+    } else {
+        table = '<p class="placeholder">No evaluated outcomes yet — outcomes stay pending until their horizon (next 1/5/20 trading sessions) completes.</p>';
+    }
+
+    const defs = JSON.stringify(data.definitions || {}, null, 0);
+    container.innerHTML = `
+        ${table}
+        <div class="rec-perf-counters">
+            <span>Total records: ${counts.total || 0}</span>
+            <span>Pending: ${counts.pending || 0}</span>
+            <span>Failed (no data): ${counts.failed || 0}</span>
+            <span>Suspected corp action: ${counts.suspected_corp_action || 0}</span>
+            <span>Not evaluated (neutral): ${counts.neutral || 0}</span>
+        </div>
+        <details class="rec-perf-defs">
+            <summary>Exact success definitions & cost model</summary>
+            <pre>${escapeHtml(defs)}</pre>
+            <p>Estimated round-trip cost incl. STT & slippage: <b>${cost.estimatedRoundTripCostPct != null ? cost.estimatedRoundTripCostPct + '%' : '—'}</b> (flat approximation).
+            HOLD is "worked" when the forward close stays within ±${cost.holdNeutralBandPct != null ? cost.holdNeutralBandPct : '—'}%.
+            Benchmark: ${escapeHtml(cost.benchmark || 'NIFTY 50')}. Small samples have wide uncertainty — rates are shown with their denominator.</p>
+        </details>
+        <p class="rec-disclaimer">Recommendations are informational, generated from this app's own technical signals. They are not personalized financial advice, no outcome is guaranteed, and no broker orders are ever placed.</p>`;
+}
+
+async function manualRecommendationRescan() {
+    if (Date.now() < rescanCooldownUntil) return;
+    const btn = document.getElementById('recRescanBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Rescanning…'; }
+    const result = await api('/api/portfolio/recommendations/rescan', 'POST', {});
+    if (result && result.error) {
+        showToast(typeof result.error === 'string' ? result.error : 'Rescan failed', 'error');
+    } else if (result && (result.status === 'completed' || result.status === 'already_scanned')) {
+        showToast(result.status === 'already_scanned'
+            ? 'Already scanned for today'
+            : `Scan complete — ${result.scanned || 0} holdings scanned`, 'success');
+        rescanCooldownUntil = Date.now() + 10 * 60 * 1000;
+        await loadPortfolioRecommendations();
+        await loadRecommendationPerformance();
+    } else if (result && result.status === 'market_holiday') {
+        showToast('Market closed today — scan skipped', 'info');
+    }
+    if (btn) {
+        btn.disabled = Date.now() < rescanCooldownUntil;
+        btn.textContent = btn.disabled ? 'Rescan (10m cooldown)' : 'Rescan now';
+        if (!btn.disabled) btn.textContent = 'Rescan now';
+    }
 }
 
 // ===== ALLOCATION DONUT (per-stock weights) =====

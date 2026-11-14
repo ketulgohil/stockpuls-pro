@@ -77,8 +77,90 @@ def _migration_v1(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_v2(conn: sqlite3.Connection) -> None:
+    """Version 2 schema migration: portfolio recommendation history + outcomes.
+
+    rec_recommendations is append-only (one immutable row per symbol per scan
+    per horizon). rec_evaluations holds one outcome row per
+    (recommendation, horizon_key) and is created PENDING, then filled once.
+    """
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS rec_scans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            trade_date TEXT NOT NULL,
+            trigger TEXT NOT NULL,
+            status TEXT NOT NULL,
+            scanned_at TEXT NOT NULL,
+            holdings_count INTEGER NOT NULL DEFAULT 0,
+            scanned_count INTEGER NOT NULL DEFAULT 0,
+            no_data_count INTEGER NOT NULL DEFAULT 0,
+            not_enough_data_count INTEGER NOT NULL DEFAULT 0,
+            error TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_rec_scans_date
+            ON rec_scans(trade_date, status);
+
+        CREATE TABLE IF NOT EXISTS rec_recommendations (
+            id TEXT PRIMARY KEY,
+            trade_date TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            exchange TEXT NOT NULL DEFAULT 'NSE',
+            horizon TEXT NOT NULL,
+            recommendation TEXT NOT NULL,
+            generated_at TEXT NOT NULL,
+            data_as_of TEXT,
+            stale_data INTEGER NOT NULL DEFAULT 0,
+            reference_price REAL,
+            reference_date TEXT,
+            buy_score REAL,
+            sell_score REAL,
+            signals_json TEXT,
+            strategy TEXT NOT NULL,
+            strategy_version TEXT NOT NULL,
+            holding_qty REAL,
+            holding_avg_price REAL,
+            holding_weight_pct REAL,
+            scan_id INTEGER,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_rec_rec_symbol_date
+            ON rec_recommendations(symbol, trade_date);
+        CREATE INDEX IF NOT EXISTS idx_rec_rec_horizon
+            ON rec_recommendations(horizon, recommendation);
+
+        CREATE TABLE IF NOT EXISTS rec_evaluations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            recommendation_id TEXT NOT NULL,
+            horizon_key TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'PENDING',
+            end_date TEXT,
+            ref_price REAL,
+            end_price REAL,
+            gross_return_pct REAL,
+            cost_pct REAL,
+            net_return_pct REAL,
+            bench_return_pct REAL,
+            excess_return_pct REAL,
+            mfe_pct REAL,
+            mae_pct REAL,
+            days_used INTEGER,
+            note TEXT,
+            evaluated_at TEXT,
+            UNIQUE(recommendation_id, horizon_key)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_rec_eval_status
+            ON rec_evaluations(status, horizon_key);
+        """
+    )
+
+
 MIGRATIONS: Dict[int, Callable[[sqlite3.Connection], None]] = {
     1: _migration_v1,
+    2: _migration_v2,
 }
 
 

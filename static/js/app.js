@@ -519,6 +519,17 @@ function waitForChartContainer(timeoutMs = 5000) {
     });
 }
 
+function resizeChartCanvas() {
+    const container = document.getElementById('chartContainerChart');
+    const chartApi = window.chartController?.chart || chartChart;
+    if (!container || !chartApi) return false;
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    if (width <= 0 || height <= 0) return false;
+    chartApi.resize(width, height, true);
+    return true;
+}
+
 // Initialize dedicated chart (idempotent, returns promise)
 async function initChartChart() {
     // Return existing promise if already initializing or initialized
@@ -529,6 +540,9 @@ async function initChartChart() {
     chartInitPromise = (async () => {
         const container = await waitForChartContainer();
         if (!container) throw new Error('Chart container not found');
+        if (typeof LightweightCharts === 'undefined') {
+            throw new Error('Chart library did not load. Check the Lightweight Charts script request.');
+        }
         console.log('[initChartChart] Container found, dimensions:', container.clientWidth, 'x', container.clientHeight);
 
         // Use the new unified ChartController
@@ -544,6 +558,9 @@ async function initChartChart() {
         emaSeriesChart = window.chartController.emaSeries;
         vwapSeriesChart = window.chartController.vwapSeries;
         console.log('[initChartChart] Chart and series exposed:', !!chartChart, !!candleSeriesChart, !!volumeSeriesChart);
+        if (!chartChart || !candleSeriesChart || !volumeSeriesChart) {
+            throw new Error('Chart controller could not create the chart and price/volume series.');
+        }
 
         // Initialize drawing event handlers
         initChartDrawingEvents();
@@ -910,10 +927,7 @@ async function loadChartChart(symbolArg) {
 
         // Force chart resize to ensure correct dimensions
         setTimeout(() => {
-            if (chartChart) chartChart.resize();
-            if (window.chartController && window.chartController.chart) {
-                window.chartController.chart.resize();
-            }
+            resizeChartCanvas();
         }, 0);
 
         // Draw ORB levels for intraday
@@ -2083,10 +2097,7 @@ window.showTab = function(tabName) {
                     // Chart already initialized - ensure it resizes to new container dimensions
                     console.log('[showTab] chart already initialized, resizing...');
                     setTimeout(() => {
-                        if (chartChart) chartChart.resize();
-                        if (window.chartController && window.chartController.chart) {
-                            window.chartController.chart.resize();
-                        }
+                        resizeChartCanvas();
                     }, 50);
                 }
                 loadChartWatchlist();

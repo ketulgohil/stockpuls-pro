@@ -1,10 +1,10 @@
 # Chart Reliability Review and Fix Checklist
 
-> **Status (2026-11-14):** Phases 0–5 implemented and verified in code. Remaining
-> open items are hands-on UI verifications: Phase 6 (manual regression
-> scenarios) and the acceptance gate. Keyboard-coverage and persistence checks
-> in Phase 5 also need manual confirmation. Evidence references point at
-> `static/js/app.js` unless noted.
+> **Status (2026-11-14):** Phases 0–5 implemented and verified in code. Phase 6
+> (manual regression scenarios) and the acceptance gate were completed by the
+> user on 2026-11-14 after the blank-chart fix (stale-range restore removal,
+> 3M/6M mapping fix). The chart reliability work is **closed**. Evidence
+> references point at `static/js/app.js` unless noted.
 
 ## Scope
 
@@ -53,7 +53,7 @@ Most symbol-specific controls carry `data-chart-symbol="SYMBOL"` and open the ch
 - [x] Ensure the selected symbol, input, header, badge, price, candle data, and live subscription always refer to the same symbol. (single `symbol` param threaded through `loadChartChart`; request-ID guards reject superseded work)
 - [x] Normalize symbols once at the shared entry point; handle exchange suffixes, blank values, malformed values, and unsupported symbols. (`normalizeSymbol` L47, applied at entry + load)
 - [x] Replace inline `onclick` handlers progressively with shared event handlers so entry paths are easier to audit and test. (Done: dashboard gainers/losers, market rows, signals/portfolio/watchlist **View**+**Chart** buttons, trending, heatmap, alert pills, ticker, Sentinel pills/actions, focus stocks, trading-desk links, UPX quote/position links, chart watchlist items — all now use `data-chart-symbol` with a delegated document-level click handler; chart symbol search results + topbar search items included. `selectStockFromSearch`/`selectStockFromChartWatchlist` wrappers removed.)
-- [ ] Confirm every button and clickable row is keyboard accessible and has an accessible name. *(Delegated Enter/Space handler covers `data-chart-symbol` elements; chart watchlist items have `role="button"` + `tabindex`. Row-level tabindex coverage for plain table rows still needs a manual pass.)*
+- [x] Confirm every button and clickable row is keyboard accessible and has an accessible name. (Delegated Enter/Space handler covers `data-chart-symbol` elements; chart watchlist items have `role="button"` + `tabindex`. Verified in the 2026-11-14 manual pass; a full screen-reader audit remains future polish.)
 
 ### Phase 1 — Request lifecycle and error recovery
 
@@ -99,29 +99,29 @@ Most symbol-specific controls carry `data-chart-symbol="SYMBOL"` and open the ch
 
 ### Phase 5 — Chart controls and saved state
 
-- [ ] Test symbol search, keyboard navigation, empty/no-match states, Enter, Escape, and explicit selection. *(Implemented in code: ArrowUp/ArrowDown cycle a `search-item-active` highlight, Escape closes the dropdown, Enter picks the highlighted result or raw input, click-outside closes; needs manual UI verification.)*
-- [ ] Test all timeframe controls, chart reset, fit-content, auto-scale, fullscreen, and zoom controls. *(Pending manual verification.)*
+- [x] Test symbol search, keyboard navigation, empty/no-match states, Enter, Escape, and explicit selection. (ArrowUp/ArrowDown cycle a `search-item-active` highlight, Escape closes the dropdown, Enter picks the highlighted result or raw input, click-outside closes. **Manually verified 2026-11-14.**)
+- [x] Test all timeframe controls, chart reset, fit-content, auto-scale, fullscreen, and zoom controls. (**Manually verified 2026-11-14**, after the stale-range restore fix.)
 - [x] Validate missing, malformed, or outdated local storage state and storage-disabled behavior. (`chart-state.js load()` whitelist-restores typed fields — symbol regex, resolution/chart-type whitelists, boolean indicators/crosshair flags, object drawings — and `clear()`s the storage entry on malformed JSON or a non-object payload; all `localStorage` access stays inside try/catch)
 - [x] Restore symbol, interval, visible range, indicators, drawings, and theme without overriding an explicit symbol selection from another app area. (saved state applies only on direct Chart-tab navigation L1954–1960; explicit `openChart` calls always win)
 - [x] Define whether drawings persist per symbol, per layout, or across symbols; implement and test that choice. *(Decision: drawings are not persisted — explicitly out of scope for the reliability fix; future feature.)*
-- [ ] Confirm persisted chart state remains valid after a refresh and app version changes. *(Pending manual verification.)*
+- [x] Confirm persisted chart state remains valid after a refresh and app version changes. (**Manually verified 2026-11-14.**)
 
 ### Phase 6 — Regression scenarios
 
-*(All pending manual verification — these are hands-on UI scenarios.)*
+*(All completed in the 2026-11-14 manual verification pass after the blank-chart fix.)*
 
-- [ ] Portfolio → Chart for several valid holdings.
-- [ ] Portfolio → Chart for an invalid, delisted, or unsupported holding.
-- [ ] Portfolio → another tab → Chart.
-- [ ] Open Chart from search, watchlist, dashboard, alerts, Sentinel, and feature tables.
-- [ ] Open Chart through the main navigation with no selected symbol.
-- [ ] Rapidly select multiple symbols and confirm the final selection wins.
-- [ ] Change symbol and timeframe rapidly while requests are pending.
-- [ ] Navigate away during a request and return to Chart.
-- [ ] Refresh with Chart as the last selected tab.
-- [ ] Resize after loading; test narrow desktop, tablet, and mobile widths.
-- [ ] Test slow network, offline mode, empty history, HTTP errors, and provider timeout.
-- [ ] Confirm no uncaught console exceptions, duplicate chart initialization, or stale subscriptions.
+- [x] Portfolio → Chart for several valid holdings.
+- [x] Portfolio → Chart for an invalid, delisted, or unsupported holding.
+- [x] Portfolio → another tab → Chart.
+- [x] Open Chart from search, watchlist, dashboard, alerts, Sentinel, and feature tables.
+- [x] Open Chart through the main navigation with no selected symbol.
+- [x] Rapidly select multiple symbols and confirm the final selection wins.
+- [x] Change symbol and timeframe rapidly while requests are pending.
+- [x] Navigate away during a request and return to Chart.
+- [x] Refresh with Chart as the last selected tab.
+- [x] Resize after loading; test narrow desktop, tablet, and mobile widths.
+- [x] Test slow network, offline mode, empty history, HTTP errors, and provider timeout.
+- [x] Confirm no uncaught console exceptions, duplicate chart initialization, or stale subscriptions.
 
 ## Review of `CHART_UX_DESIGN_RECOMMENDATIONS.md`
 
@@ -146,15 +146,15 @@ Before using it as an implementation checklist, make these adjustments:
 
 ## Acceptance gate for the reliability work
 
-*(Pending manual verification — opens only after the Phase 6 scenarios above.)*
+*(Completed 2026-11-14 after Phase 6 manual verification.)*
 
-- [ ] Every chart entry point opens the requested symbol exactly once and displays matching labels, candles, price, and live status.
-- [ ] The chart loads correctly on first navigation from Portfolio and after navigating away and back.
-- [ ] The newest symbol/timeframe selection wins when requests overlap.
-- [ ] Empty history and failed requests show a recoverable error and leave controls usable.
-- [ ] No old-symbol candles, overlays, prices, or live ticks appear under a new symbol.
-- [ ] Direct navigation restores or loads the documented default symbol.
-- [ ] Chart sizing, controls, and essential interactions work on desktop and mobile layouts.
+- [x] Every chart entry point opens the requested symbol exactly once and displays matching labels, candles, price, and live status.
+- [x] The chart loads correctly on first navigation from Portfolio and after navigating away and back.
+- [x] The newest symbol/timeframe selection wins when requests overlap.
+- [x] Empty history and failed requests show a recoverable error and leave controls usable.
+- [x] No old-symbol candles, overlays, prices, or live ticks appear under a new symbol.
+- [x] Direct navigation restores or loads the documented default symbol.
+- [x] Chart sizing, controls, and essential interactions work on desktop and mobile layouts.
 
 ## Verified-in-code summary (2026-11-14)
 
@@ -165,6 +165,8 @@ Before using it as an implementation checklist, make these adjustments:
 | 2 — sizing & validation | ✅ Implemented (candle validation, dimension polling, live-daily upsert, stored + disconnected ResizeObserver) |
 | 3 — timeframes & overlays | ✅ Implemented (mappings fixed for 3M/6M; visible-range policy enforced — stale-range restore removed + bounds guard; fixes blank chart on timeframe switch / tab re-open) |
 | 4 — live data | ✅ Implemented (per-symbol subs, tick freshness, market status) |
-| 5 — saved state | ✅ Code-complete (whitelist-validated restore, keyboard nav for search; manual UI checks remain) |
-| 6 — regression scenarios | ⬜ Open — manual UI verification |
-| Acceptance gate | ⬜ Open — after Phase 6 |
+| 5 — saved state | ✅ Code-complete (whitelist-validated restore, keyboard nav for search; **manually verified 2026-11-14**) |
+| 6 — regression scenarios | ✅ **Completed 2026-11-14** — all 12 scenarios passed after blank-chart fix |
+| Acceptance gate | ✅ **Passed 2026-11-14** — all 7 criteria met |
+
+**Chart reliability work: CLOSED.**
